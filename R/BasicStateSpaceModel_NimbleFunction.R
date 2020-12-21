@@ -10,11 +10,25 @@ set.seed(mySeed)
 N.predict <- nimbleFunction(
   run = function(
     N_current = double(),
-    Mu.r = double(),
-    epsilon.r = double()
+    Mu.r1 = double(),
+    
+    epsilon.r1 = double(),
+    sigma_e = double(),
+    sigma_d = double(),
+    theta = double(),
+    K = double(),
+    beta.r1 = double(1),
+    EnvCov = double(1)
     ) {
     
-    r <- Mu.r + epsilon.r
+    r1 <- Mu.r1 + sum(beta.r1*EnvCov) + epsilon.r1 # epsilon.r1 ~ dnorm(0, sd = sigma_e)
+    
+    # K <- [some function of beta] 
+    
+    s <- r1 - (0.5 * sigma_e^2) - (0.5 * sigma_d^2 / N_current)
+    
+    r <- s - Mu.r1 * ((N_current^theta)-1 / (K^theta)-1) 
+    
     N_next <- exp(log(N_current) + r)
 
     if(is.na(N_next)) stop('Predicted population size (N_next) is NA')
@@ -25,13 +39,16 @@ N.predict <- nimbleFunction(
 )
 
 
-# Data simulation #
+# Data simulation # - NEEDS UPDATING
 #-----------------#
 
-## Set parameter values
+## NOTE: Simulate data with population sizes both very low and fluctuating around K
+
+## Set parameter values 
 Tmax <- 100
-Mu.r <- 0.01
-sigma.r <- 0.2
+Mu.r1 <- 0.3 # up to 1
+sigma.e <- sqrt(0.01)
+sigma.d <- sqrt(0.5)
 
 ## Simulate random effects
 epsilon.r <- rnorm(Tmax, 0, sigma.r)
@@ -62,7 +79,8 @@ N.predict.nimble <- nimbleCode({
   
   ## Population growth
   for(t in 1:(Tmax-1)){
-    N[t+1] <- N.predict(N_current = N[t], Mu.r = Mu.r, epsilon.r = epsilon.r[t])
+    N[t+1] <- N.predict(N_current = N[t], Mu.r = Mu.r, epsilon.r = epsilon.r[t], EnvCov = EnvCov[1:NoCovariates,t], beta.r1 = , ...)
+    # If EnvCov and beta.r1 are set to 0, have to pass that 0 as a vector (look up how to do again)
   }
   
   # NOTE: When fitting a model without REs, we can simply set epsilon.r = 0 in the function call
@@ -96,12 +114,19 @@ N.predict.nimble <- nimbleCode({
   
   ## Random effects
   for(t in 1:Tmax){
-    epsilon.r[t] ~ dnorm(0, sd = sigma.r)
+    epsilon.r1[t] ~ dnorm(0, var = sigma.e^2 + ((sigma.d^2)/N))
   }
   
   ## Priors
-  Mu.r ~ dunif(-50, 50)
-  sigma.r ~ dunif(0, 10)
+  Mu.r1 ~ dunif(-50, 50)
+  sigma.e ~ dunif(0, 10)
+  # sigma.d (--> added as data)
+  K ~ dunif(1, maxK)
+  theta ~ dunif(-1, 20)
+  
+  for(i in 1:NoCovariates){ # Check if dimension call works in BUGS?
+    beta.r1[i] ~ dunif(-5, 5)
+  }
   
   initialN ~ dunif(1, maxN1)
   
