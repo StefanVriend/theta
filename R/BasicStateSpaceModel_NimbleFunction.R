@@ -8,10 +8,11 @@ set.seed(mySeed)
 #---------------------------------------------#
 
 N.predict <- nimbleFunction(
+
   run = function(
     N_current = double(),
     Mu.r1 = double(),
-    
+
     epsilon.r1 = double(),
     sigma_e = double(),
     sigma_d = double(),
@@ -20,15 +21,15 @@ N.predict <- nimbleFunction(
     beta.r1 = double(1),
     EnvCov = double(1)
     ) {
-    
+
     r1 <- Mu.r1 + sum(beta.r1*EnvCov) + epsilon.r1 # epsilon.r1 ~ dnorm(0, sd = sigma_e)
-    
-    # K <- [some function of beta] 
-    
+
+    # K <- [some function of beta]
+
     s <- r1 - (0.5 * sigma_e^2) - (0.5 * sigma_d^2 / N_current)
-    
-    r <- s - Mu.r1 * ((N_current^theta)-1 / (K^theta)-1) 
-    
+
+    r <- s - Mu.r1 * (((N_current^theta)-1) / ((K^theta)-1))
+
     N_next <- exp(log(N_current) + r)
 
     if(is.na(N_next)) stop('Predicted population size (N_next) is NA')
@@ -36,6 +37,7 @@ N.predict <- nimbleFunction(
     returnType(double())
     return(N_next)
   }
+
 )
 
 
@@ -44,7 +46,7 @@ N.predict <- nimbleFunction(
 
 ## NOTE: Simulate data with population sizes both very low and fluctuating around K
 
-## Set parameter values 
+## Set parameter values
 Tmax <- 100
 Mu.r1 <- 0.3 # up to 1
 sigma.e <- sqrt(0.01)
@@ -59,7 +61,9 @@ N[1] <- 50
 
 ## Use nimble function to predict population size over time
 for(t in 1:(Tmax-1)){
+
   N[t+1] <- N.predict(N_current = N[t], Mu.r = Mu.r, epsilon.r = epsilon.r[t])
+
 }
 
 plot(N, type = 'l')
@@ -69,26 +73,26 @@ plot(N, type = 'l')
 #-------------------#
 
 N.predict.nimble <- nimbleCode({
-  
+
   #-----------------------------------#
   # PROCESS MODEL (POPULATION GROWTH) #
   #-----------------------------------#
-  
+
   ## Initial population size
   N[1] <- initialN
-  
+
   ## Population growth
   for(t in 1:(Tmax-1)){
     N[t+1] <- N.predict(N_current = N[t], Mu.r = Mu.r, epsilon.r = epsilon.r[t], EnvCov = EnvCov[1:NoCovariates,t], beta.r1 = , ...)
     # If EnvCov and beta.r1 are set to 0, have to pass that 0 as a vector (look up how to do again)
   }
-  
+
   # NOTE: When fitting a model without REs, we can simply set epsilon.r = 0 in the function call
-  
+
   #-------------------#
   # OBSERVATION MODEL #
   #-------------------#
-  
+
   ## Binomial observation model
   #for(t in 1:Tmax){
   #  N_obs[t] ~ dbin(pObs[t], round(N[t]))
@@ -96,44 +100,44 @@ N.predict.nimble <- nimbleCode({
   #       At the moment, it's "too rigid" this way because the N.predict
   #       function already does not allow for stochastic outcomes (so whenever
   #       N.predict returns an N that does not satify the condition round(N) = N_obs
-  #       then there will be an infinite log probability. 
-  
+  #       then there will be an infinite log probability.
+
   ## Alternative: Poisson observation model
   for(t in 1:(Tmax-1)){
     N_obs[t] ~ dpois(pObs[t]*N[t])
   }
-  
+
   ## Alternative: Normal observation model
   #for(t in 1:(Tmax-1)){
   #  N_obs[t] ~ dnorm(pObs[t]*N[t], sd = sigma.obs)
   #}
-  
+
   #------------------------#
   # PRIORS AND CONSTRAINTS #
   #------------------------#
-  
+
   ## Random effects
   for(t in 1:Tmax){
     epsilon.r1[t] ~ dnorm(0, var = sigma.e^2 + ((sigma.d^2)/N))
   }
-  
+
   ## Priors
   Mu.r1 ~ dunif(-50, 50)
   sigma.e ~ dunif(0, 10)
   # sigma.d (--> added as data)
   K ~ dunif(1, maxK)
   theta ~ dunif(-1, 20)
-  
+
   for(i in 1:NoCovariates){ # Check if dimension call works in BUGS?
     beta.r1[i] ~ dunif(-5, 5)
   }
-  
+
   initialN ~ dunif(1, maxN1)
-  
+
   #sigma.obs ~ dunif(0, 50)
-  
+
 })
-  
+
 
 # Initial values #
 #----------------#
@@ -179,15 +183,15 @@ nchains <- 3
 
 # Run model #
 #-----------#
-ModelRun <- nimbleMCMC(code = N.predict.nimble, 
-                       constants = input.constants, 
-                       data = input.data, 
-                       inits = Inits, 
-                       monitors = params, 
-                       niter = niter, 
-                       nburnin = nburnin, 
-                       nchains = nchains, 
-                       setSeed = mySeed, 
+ModelRun <- nimbleMCMC(code = N.predict.nimble,
+                       constants = input.constants,
+                       data = input.data,
+                       inits = Inits,
+                       monitors = params,
+                       niter = niter,
+                       nburnin = nburnin,
+                       nchains = nchains,
+                       setSeed = mySeed,
                        samplesAsCodaMCMC = TRUE)
 
 
@@ -199,9 +203,9 @@ plot(ModelRun, ask = T)
 # Extra: Model assembly step (for interactive exploration) #
 #----------------------------------------------------------#
 
-NimModel <- nimbleModel(code = N.predict.nimble, 
-                        constants = input.constants, 
-                        data = input.data, 
+NimModel <- nimbleModel(code = N.predict.nimble,
+                        constants = input.constants,
+                        data = input.data,
                         inits = Inits[[1]])
 
 NimModel$check()
