@@ -301,7 +301,7 @@ nim_est <- tibble::tibble(
 # Bootstraps from MLE model
 mle_est <- tibble::tibble(
   x = c(rep(c("K", "mu_r1", "sigma_e"), each = nrow(as.matrix(model_output)))),
-  val = c(tl_mle$boot.K, tl_mle$boot.r1, tl_mle$boot.se),
+  val = c(tl_mle$boot.K, tl_mle$boot.r1, sqrt(tl_mle$boot.se)),
   type = "mle"
 )
 
