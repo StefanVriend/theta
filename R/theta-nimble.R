@@ -338,5 +338,5 @@ bind_rows(nim_est, mle_est) %>%
                      name = "") +
   scale_x_continuous(breaks = scales::pretty_breaks())
 
-ggsave(here::here("inst", "images", "theta-estimates.pdf"), device = cairo_pdf, width = 6, height = 4)
-ggsave(here::here("inst", "images", "theta-estimates.png"), width = 6, height = 4, dpi = 350)
+ggsave(here::here("inst", "images", "parameter-comparison.pdf"), device = cairo_pdf, width = 6, height = 4)
+ggsave(here::here("inst", "images", "parameter-comparison.png"), width = 6, height = 4, dpi = 350)
