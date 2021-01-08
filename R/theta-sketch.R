@@ -1,4 +1,3 @@
-
 library(nimble)
 nimbleOptions(disallow_multivariate_argument_expressions = FALSE)
 
@@ -21,20 +20,20 @@ predict_N <- nimbleFunction(
     #beta_r1 = double(1),
     #env_cov = double(1)
   ) {
-    
+
     r1 <- mu_r1 + epsilon_r1
     #r1 <- mu_r1 + sum(beta_r1 * env_cov) + epsilon_r1
-    
+
     # K <- [some function of beta]
-    
+
     s <- r1 - (0.5 * sigma_e^2) - (0.5 * sigma_d^2 / N_current)
-    
+
     r <- s - mu_r1 * (((N_current^theta)-1) / ((K^theta)-1))
-    
+
     N_next <- exp(log(N_current) + r)
-    
+
     if(is.na(N_next)) stop('Predicted population size (N_next) is NA')
-    
+
     returnType(double())
     return(N_next)
   }
@@ -64,14 +63,14 @@ epsilon_r1 <- rep(NA, tmax-1)
 
 ## Use nimble function to predict population size over time
 for(t in 1:(tmax-1)){
-  
+
   epsilon_r1[t] <- rnorm(1, 0, sqrt(sigma_e^2 + ((sigma_d^2) / N[t])))
-  
+
   N[t+1] <- predict_N(N_current = N[t], mu_r1 = mu_r1, epsilon_r1 = epsilon_r1[t],
                       K = K, theta = theta, #beta.r1 = 0, EnvCov = 0,
                       sigma_e = sigma_e,
                       sigma_d = sigma_d)
-  
+
 }
 ts.plot(N)
 plot(diff(log(N))~N[-length(N)])
@@ -84,7 +83,7 @@ ts.plot(cbind(N,exp(logY)), col=1:2)
 #----------------------#
 
 predict_N_nimble <- nimbleCode({
-  
+
   for (t in 1:(tmax-1)){
     #obs.r[t] ~ dnorm(pred.r[t], var = var_r1[t])
     # state process
@@ -112,14 +111,14 @@ predict_N_nimble <- nimbleCode({
 
 
 predict_N_nimble_WO_obserror <- nimbleCode({
-  
+
   for (t in 1:(tmax-1)){
     obs.r[t] ~ dnorm(pred.r[t], var = var_r1[t])
     s[t] <- mu_r1 - (0.5 * sigma_e^2) - (0.5 * sigma_d^2 / N[t])
     pred.r[t] <- s[t] - mu_r1 * (((N[t]^theta)-1) / ((K^theta)-1))
     var_r1[t]  <- sigma_e^2 + ((sigma_d^2) / N[t])
   }
-  
+
   ## Priors
   mu_r1 ~ dlnorm(meanlog = 0, sdlog = 0.5)
   sigma_e ~ dunif(0, 1)
@@ -173,21 +172,21 @@ logN[1] <- log(N[1])
 
 ## Function to sample initial values
 sample_inits <- function(){
-  
+
   list(
     mu_r1 = rnorm(1, 1, 0.5),
     sigma_e  = runif(1, 0, 0.2),
     theta = rnorm(1, 2, 0.5),
-    K = K, 
-    pred.r = diff(logY), 
-    s = diff(logY), 
-    var_r1 = 0.001, 
-    sigmaY=0.1, 
+    K = K,
+    pred.r = diff(logY),
+    s = diff(logY),
+    var_r1 = 0.001,
+    sigmaY=0.1,
     eps = rnorm(length(logY)-1, 0, 0.0001)
     #eps = runif(length(logY)-1, 0, 0.0001)
     #sigma_obs = runif(1, 0, 5)
   )
-  
+
 }
 
 ## Sample initial values
@@ -236,14 +235,14 @@ coda::gelman.diag(model_output)
 l <- purrr::map2(.x = c("K", "mu_r1", "sigma_e", "theta"),
                  .y = c(K, mu_r1, sigma_e, theta),
                  .f = ~{
-                   
+
                    #bayesplot::mcmc_combo(model_output, pars = .x)
                    p <- bayesplot::mcmc_dens(model_output, pars = .x) +
                      geom_vline(xintercept = .y, color = "#03396c")
                    q <- bayesplot::mcmc_trace(model_output, pars = .x)
-                   
+
                    cowplot::plot_grid(p, q, align = "h", nrow = 1, ncol = 2)
-                   
+
                  })
 
 #ggsave("test.pdf", gridExtra::arrangeGrob(grobs = l))
