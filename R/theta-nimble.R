@@ -1,12 +1,12 @@
 library(tidyverse)
 library(nimble)
 library(extrafont)
+extrafont::loadfonts(device = "win")
+
 nimbleOptions(disallow_multivariate_argument_expressions = FALSE)
 
 mySeed <- 74
 set.seed(mySeed)
-
-
 
 #-----------------------------------------------#
 # Basic NIMBLE function for population growth
@@ -43,6 +43,7 @@ predict_N <- nimbleFunction(
   }
 )
 
+predict_N_c <- compileNimble(predict_N)
 
 #--------------------#
 # Data simulation ####
@@ -51,14 +52,14 @@ predict_N <- nimbleFunction(
 ## NOTE: Simulate data with population sizes both very low and fluctuating around K
 
 ## Set parameter values
-tmax <- 50
-mu_r1 <- 0.6 # up to 1
+tmax <- 100
+mu_r1 <- 0.5 # up to 1
 sigma_e2 <- 0.01
 sigma_e <- sqrt(sigma_e2)
-sigma_d2 <- 0.4
+sigma_d2 <- 0.2
 sigma_d <- sqrt(sigma_d2)
-K <- 200
-theta <- 2
+K <- 100
+theta <- 1.2
 
 ## Simulate random effects
 
@@ -93,7 +94,7 @@ log_Y <- rnorm(length(N), log(N) - 0.5 * sigma_Y^2, sigma_Y)
 #png(here::here("inst", "images", "sim-data.png"), width = 7, height = 4, units = "in", res = 350)
 par(mfrow = c(1, 2))
 plot(N, type = "l", xlab = "Time")
-lines(exp(log_Y), type = "l", col = "red")
+#lines(exp(log_Y), type = "l", col = "red")
 title(main = bquote(K~"="~.(K)*", "*bar(r)~"="~.(mu_r1)*", "*sigma[e]^2~"="~.(sigma_e2)*", "*sigma[d]^2~"="~.(sigma_d2)))
 legend("bottomright", col = c("black", "red"), lty = 1, legend = c("True N", "Obs N"), bty = "n", cex = 0.75)
 
@@ -185,8 +186,8 @@ predict_N_nimble <- nimbleCode({
   mu_r1 ~ dlnorm(meanlog = 0, sdlog = 0.5)
   sigma_e ~ dunif(0, 1)
   K ~ dunif(1, max_K)
-  theta ~ dunif(-2, 10)
-  #theta ~ dlogis(location = 3, scale = 1)
+  #theta ~ dunif(-2, 10)
+  theta ~ dlogis(location = 3, scale = 1)
   initial_N ~ dunif(1, max_N1)
 
   # for(i in 1:NoCovariates){
@@ -238,9 +239,9 @@ input_constants_a <- list(tmax = tmax, max_N1 = N[1]*2, max_K = K*2, sigma_d = s
 params_a <- c("K", "theta", "sigma_e", "mu_r1", "gamma", "epsilon_r1", "N")
 
 ## Set MCMC parameters
-niter <- 100000
-nburnin <- 50000
-nthin <- 100
+niter <- 10000
+nburnin <- 5000
+nthin <- 10
 nchains <- 3
 
 #------------#
@@ -248,10 +249,10 @@ nchains <- 3
 #------------#
 
 mod_a <- nimbleMCMC(code = predict_N_nimble,
-                    constants = input_constants,
-                    data = input_data,
-                    inits = inits,
-                    monitors = params,
+                    constants = input_constants_a,
+                    data = input_data_a,
+                    inits = inits_a,
+                    monitors = params_a,
                     niter = niter,
                     nburnin = nburnin,
                     thin = nthin,
@@ -400,10 +401,10 @@ predict_r_nimble <- nimbleCode({
   #------------------------#
 
   mu_r1 ~ dlnorm(meanlog = 0, sdlog = 0.5)
-  sigma_e2 ~ dnorm(0, sd = 1)
+  sigma_e2 ~ dunif(0, 1)
   K ~ dunif(1, max_K)
-  #theta ~ dunif(-1, 10)
-  theta ~ dlogis(location = 3, scale = 1)
+  theta ~ dunif(-2, 10)
+  #theta ~ dlogis(location = 3, scale = 1)
 
 
   #--------------------#
@@ -447,9 +448,9 @@ input_constants_b <- list(tmax = tmax, max_K = K*2, sigma_d2 = sigma_d2)
 params_b <- c("K", "theta", "sigma_e2", "mu_r1", "gamma")
 
 ## Set MCMC parameters
-niter <- 20000
-nburnin <- 15000
-nthin <- 10
+niter <- 35000
+nburnin <- 25000
+nthin <- 20
 nchains <- 3
 
 #------------#
@@ -467,6 +468,11 @@ mod_b <- nimbleMCMC(code = predict_r_nimble,
                     nchains = nchains,
                     #setSeed = mySeed,
                     samplesAsCodaMCMC = TRUE)
+
+coda::gelman.diag(mod_b)
+
+bayesplot::mcmc_combo(as.list(mod_b), pars = "theta")
+bayesplot::mcmc_acf(as.list(mod_b))
 
 # nim_b <- nimbleModel(code = predict_r_nimble, data = input_data_b,
 #                      constants = input_constants_b, inits = inits_b[[1]])
@@ -543,8 +549,8 @@ predict_r_nimble_obs <- nimbleCode({
   #-----------------------------------#
 
   # Initialize N
+  #logN[1] <- initial_N
   N[1] <- initial_N
-  #log_N[1] <- log(N[1])
 
   for (t in 1:(tmax-1)){
 
@@ -552,13 +558,9 @@ predict_r_nimble_obs <- nimbleCode({
 
     pred_r[t] <- s[t] - mu_r1 * (((N[t]^theta)-1) / ((K^theta)-1))
 
-    eps[t] ~ dnorm(0, var = var_r1[t])
+    var_r1[t] <- sigma_e2 + ((sigma_d2) / N[t])
 
-    var_r1[t]  <- sigma_e2 + ((sigma_d2) / N[t])
-
-    #N[t] <- exp(log_N[t])
-
-    log(N[t+1]) <- log(N[t]) + pred_r[t] + eps[t]
+    log(N[t+1]) ~ dnorm(log(N[t]) + pred_r[t], sd = sqrt(var_r1[t]))
 
   }
 
@@ -568,24 +570,27 @@ predict_r_nimble_obs <- nimbleCode({
 
   for (t in 1:(tmax-1)){
 
-    #log_Y[t] ~ dnorm(log(N[t]) - 0.5 * sigma_Y^2, sd = sigma_Y)
-    #log_Y[t] ~ dnorm(log(N[t]), sd = sigma_Y)
-    Y[t] ~ dpois(N[t])
+    #logN_obs[t] ~ dnorm(p_obs[t] * (log(N[t]) - 0.5 * sigma_obs^2), sd = sigma_obs)
+    N_obs[t] ~ dnorm(p_obs[t] * N[t], sd = sigma_obs)
 
-    #Y[t] ~ dpois(N[t])
+    # NB: lognormal observation error can be realistically expected in many ecological settings
+    # see (e.g. Dennis et al. 2006 Ecological Monographs)
+
+    #N_obs[t] ~ dpois(N[t] * p_obs[t])
   }
 
   #------------------------#
   # PRIORS AND CONSTRAINTS #
   #------------------------#
 
-  mu_r1 ~ dlnorm(meanlog = 0, sdlog = 0.5)
-  sigma_e2 ~ dnorm(0, sd = 1)
+  mu_r1 ~ dunif(0, 1)
+  #mu_r1 ~ dlnorm(meanlog = 0, sdlog = 0.5)
+  sigma_e2 ~ dunif(0, 1)
   K ~ dunif(1, max_K)
-  #theta ~ dunif(-1, 10)
-  theta ~ dlogis(location = 3, scale = 1)
+  theta ~ dunif(-2, 10)
+  #theta ~ dlogis(location = 3, scale = 1)
 
-  #sigma_Y ~ dunif(0, 1)
+  sigma_obs ~ dunif(0, 1)
   initial_N ~ dunif(1, max_N1)
 
   #--------------------#
@@ -604,19 +609,17 @@ predict_r_nimble_obs <- nimbleCode({
 sample_inits_c <- function(){
 
   list(
-    mu_r1 = rnorm(1, 1, 0.5),
-    sigma_e2 = runif(1, 0, 1),
-    theta = rnorm(1, 2, 0.5),
+    mu_r1 = runif(1, 0.1, 0.5),
+    sigma_e2 = runif(1, 0, 0.1),
+    theta = runif(1, 1.2, 2.5),
     K = K,
-    initial_N = N[1],
-    #sigma_Y = runif(1, 0, 1),
-    eps = rep(0, length(log_Y)-1)
+    sigma_obs = runif(1, 0, 0.1)
   )
 
 }
 
 ## Sample initial values
-inits_c <- list(sample_inits_c())
+inits_c <- list(sample_inits_c(), sample_inits_c(), sample_inits_c())
 
 #-----------------------------#
 # NIMBLE model and MCMC setup
@@ -624,19 +627,22 @@ inits_c <- list(sample_inits_c())
 
 ## Set data and constants
 #input_data_c <- list(log_Y = log_Y)
-input_data_c <- list(Y = N)
+#input_data_c <- list(logN_obs = log_Y, p_obs = rep(1, tmax))
+input_data_c <- list(N_obs = exp(log_Y), p_obs = rep(1, tmax))
 
-input_constants_c <- list(tmax = tmax, max_K = K*2, max_N1 = max(N), sigma_d2 = sigma_d2)
+input_constants_c <- list(tmax = tmax, max_K = K*2,
+                          max_N1 = max(N),
+                          sigma_d2 = sigma_d2)
 
 ## Set parameters to monitor
-#params_c <- c("K", "theta", "sigma_e2", "mu_r1", "gamma", "sigma_Y")
-params_c <- c("K", "theta", "sigma_e2", "mu_r1", "gamma")
+params_c <- c("K", "theta", "sigma_e2", "mu_r1", "gamma", "sigma_obs")
+#params_c <- c("K", "theta", "sigma_e2", "mu_r1", "gamma")
 
 ## Set MCMC parameters
-niter <- 10000
-nburnin <- 5000
-nthin <- 10
-nchains <- 1
+niter <- 95000
+nburnin <- 75000
+nthin <- 50
+nchains <- 3
 
 #------------#
 # Run model
@@ -654,14 +660,19 @@ mod_c <- nimbleMCMC(code = predict_r_nimble_obs,
                     #setSeed = mySeed,
                     samplesAsCodaMCMC = TRUE)
 
-nim_c <- nimbleModel(predict_r_nimble_obs, constants = input_constants_c,
-                     data = input_data_c, inits = inits_c[[1]]) # works
+coda::gelman.diag(mod_c)
 
-nim_comp <- compileNimble(nim_c) # works
+bayesplot::mcmc_combo(as.list(mod_c), pars = "theta")
+bayesplot::mcmc_acf(as.list(mod_c))
 
-nim_conf <- configureMCMC(nim_c, monitors = params_c, print = TRUE)
-
-nim_build <- buildMCMC(nim_conf)
+# nim_c <- nimbleModel(predict_r_nimble_obs, constants = input_constants_c,
+#                      data = input_data_c, inits = inits_c[[1]]) # works
+#
+# nim_comp <- compileNimble(nim_c) # works
+#
+# nim_conf <- configureMCMC(nim_c, monitors = params_c, print = TRUE)
+#
+# nim_build <- buildMCMC(nim_conf)
 
 
 #----------------------------#
@@ -674,24 +685,24 @@ thetaplot(mle_c)
 
 # Posterior distributions from NIMBLE model
 mod_c_est <- tibble::tibble(
-  x = rep(c("K", "mu_r1", "sigma_e", "gamma", "sigma_Y"),
+  x = rep(c("K", "mu_r1", "sigma_e2", "gamma", "sigma_obs"),
           each = nrow(as.matrix(mod_c))),
-  val = c(as.matrix(mod_c)[, "K"], as.matrix(mod_c)[, "mu_r1"], as.matrix(mod_c)[, "sigma_e"], as.matrix(mod_c)[, "gamma"], as.matrix(mod_c)[, "sigma_Y"]),
+  val = c(as.matrix(mod_c)[, "K"], as.matrix(mod_c)[, "mu_r1"], as.matrix(mod_c)[, "sigma_e2"], as.matrix(mod_c)[, "gamma"], as.matrix(mod_c)[, "sigma_obs"]),
   type = "nimble",
   chain = rep(rep(seq_len(nchains), each = (niter-nburnin)/nthin, 5))
 )
 
 # Bootstraps from MLE model
 mle_c_est <- tibble::tibble(
-  x = c(rep(c("K", "mu_r1", "sigma_e", "gamma"), each = nrow(as.matrix(mod_c)))),
-  val = c(mle_c$boot.K, mle_c$boot.r1, sqrt(mle_c$boot.se), mle_c$boot.gamma),
+  x = c(rep(c("K", "mu_r1", "sigma_e2", "gamma"), each = nrow(as.matrix(mod_c)))),
+  val = c(mle_c$boot.K, mle_c$boot.r1, mle_c$boot.se, mle_c$boot.gamma),
   type = "mle"
 )
 
 # True values for parameters
 true_est <- tibble::tibble(
-  x = c("K", "mu_r1", "sigma_e", "gamma", "sigma_Y"),
-  val = c(K, mu_r1, sigma_e, gamma, sigma_Y),
+  x = c("K", "mu_r1", "sigma_e2", "gamma", "sigma_obs"),
+  val = c(K, mu_r1, sigma_e2, gamma, sigma_Y),
   type = "true"
 )
 
