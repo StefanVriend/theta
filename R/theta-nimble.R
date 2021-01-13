@@ -400,10 +400,11 @@ predict_r_nimble <- nimbleCode({
   # PRIORS AND CONSTRAINTS #
   #------------------------#
 
-  mu_r1 ~ dlnorm(meanlog = 0, sdlog = 0.5)
-  sigma_e2 ~ dunif(0, 1)
+  mu_r1 ~ dunif(-5, 5)
+  #mu_r1 ~ dlnorm(meanlog = 0, sdlog = 0.5)
+  sigma_e2 ~ dunif(0, 10)
   K ~ dunif(1, max_K)
-  theta ~ dunif(-2, 10)
+  theta ~ dunif(-10, 10)
   #theta ~ dlogis(location = 3, scale = 1)
 
 
@@ -424,7 +425,7 @@ sample_inits_b <- function(){
 
   list(
     mu_r1 = rnorm(1, 1, 0.5),
-    sigma_e2  = runif(1, 0, 1),
+    sigma_e2  = runif(1, 0, 10),
     theta = rnorm(1, 2, 0.5),
     K = K
   )
@@ -571,26 +572,26 @@ predict_r_nimble_obs <- nimbleCode({
   for (t in 1:(tmax-1)){
 
     #logN_obs[t] ~ dnorm(p_obs[t] * (log(N[t]) - 0.5 * sigma_obs^2), sd = sigma_obs)
-    N_obs[t] ~ dnorm(p_obs[t] * N[t], sd = sigma_obs)
+    #N_obs[t] ~ dnorm(p_obs[t] * N[t], sd = sigma_obs)
 
     # NB: lognormal observation error can be realistically expected in many ecological settings
     # see (e.g. Dennis et al. 2006 Ecological Monographs)
 
-    #N_obs[t] ~ dpois(N[t] * p_obs[t])
+    N_obs[t] ~ dpois(N[t] * p_obs[t])
   }
 
   #------------------------#
   # PRIORS AND CONSTRAINTS #
   #------------------------#
 
-  mu_r1 ~ dunif(0, 1)
+  mu_r1 ~ dunif(-5, 5)
   #mu_r1 ~ dlnorm(meanlog = 0, sdlog = 0.5)
-  sigma_e2 ~ dunif(0, 1)
+  sigma_e2 ~ dunif(0, 10)
   K ~ dunif(1, max_K)
-  theta ~ dunif(-2, 10)
+  theta ~ dunif(-10, 10)
   #theta ~ dlogis(location = 3, scale = 1)
 
-  sigma_obs ~ dunif(0, 1)
+  #sigma_obs ~ dunif(0, 1)
   initial_N ~ dunif(1, max_N1)
 
   #--------------------#
@@ -612,8 +613,8 @@ sample_inits_c <- function(){
     mu_r1 = runif(1, 0.1, 0.5),
     sigma_e2 = runif(1, 0, 0.1),
     theta = runif(1, 1.2, 2.5),
-    K = K,
-    sigma_obs = runif(1, 0, 0.1)
+    K = K#,
+    #sigma_obs = runif(1, 0, 0.1)
   )
 
 }
@@ -628,15 +629,15 @@ inits_c <- list(sample_inits_c(), sample_inits_c(), sample_inits_c())
 ## Set data and constants
 #input_data_c <- list(log_Y = log_Y)
 #input_data_c <- list(logN_obs = log_Y, p_obs = rep(1, tmax))
-input_data_c <- list(N_obs = exp(log_Y), p_obs = rep(1, tmax))
+input_data_c <- list(N_obs = round(exp(log_Y)), p_obs = rep(1, tmax))
 
 input_constants_c <- list(tmax = tmax, max_K = K*2,
                           max_N1 = max(N),
                           sigma_d2 = sigma_d2)
 
 ## Set parameters to monitor
-params_c <- c("K", "theta", "sigma_e2", "mu_r1", "gamma", "sigma_obs")
-#params_c <- c("K", "theta", "sigma_e2", "mu_r1", "gamma")
+#params_c <- c("K", "theta", "sigma_e2", "mu_r1", "gamma", "sigma_obs")
+params_c <- c("K", "theta", "sigma_e2", "mu_r1", "gamma")
 
 ## Set MCMC parameters
 niter <- 95000
@@ -684,12 +685,20 @@ mle_c <- thetalogistic.est(N, year = seq_len(tmax), sd = sigma_d2, nboot = nrow(
 thetaplot(mle_c)
 
 # Posterior distributions from NIMBLE model
+# mod_c_est <- tibble::tibble(
+#   x = rep(c("K", "mu_r1", "sigma_e2", "gamma", "sigma_obs"),
+#           each = nrow(as.matrix(mod_c))),
+#   val = c(as.matrix(mod_c)[, "K"], as.matrix(mod_c)[, "mu_r1"], as.matrix(mod_c)[, "sigma_e2"], as.matrix(mod_c)[, "gamma"], as.matrix(mod_c)[, "sigma_obs"]),
+#   type = "nimble",
+#   chain = rep(rep(seq_len(nchains), each = (niter-nburnin)/nthin, 5))
+# )
+
 mod_c_est <- tibble::tibble(
-  x = rep(c("K", "mu_r1", "sigma_e2", "gamma", "sigma_obs"),
+  x = rep(c("K", "mu_r1", "sigma_e2", "gamma"),
           each = nrow(as.matrix(mod_c))),
-  val = c(as.matrix(mod_c)[, "K"], as.matrix(mod_c)[, "mu_r1"], as.matrix(mod_c)[, "sigma_e2"], as.matrix(mod_c)[, "gamma"], as.matrix(mod_c)[, "sigma_obs"]),
+  val = c(as.matrix(mod_c)[, "K"], as.matrix(mod_c)[, "mu_r1"], as.matrix(mod_c)[, "sigma_e2"], as.matrix(mod_c)[, "gamma"]),
   type = "nimble",
-  chain = rep(rep(seq_len(nchains), each = (niter-nburnin)/nthin, 5))
+  chain = rep(rep(seq_len(nchains), each = (niter-nburnin)/nthin, 4))
 )
 
 # Bootstraps from MLE model
@@ -700,9 +709,15 @@ mle_c_est <- tibble::tibble(
 )
 
 # True values for parameters
+# true_est <- tibble::tibble(
+#   x = c("K", "mu_r1", "sigma_e2", "gamma", "sigma_obs"),
+#   val = c(K, mu_r1, sigma_e2, gamma, sigma_Y),
+#   type = "true"
+# )
+
 true_est <- tibble::tibble(
-  x = c("K", "mu_r1", "sigma_e2", "gamma", "sigma_obs"),
-  val = c(K, mu_r1, sigma_e2, gamma, sigma_Y),
+  x = c("K", "mu_r1", "sigma_e2", "gamma"),
+  val = c(K, mu_r1, sigma_e2, gamma),
   type = "true"
 )
 
@@ -733,7 +748,7 @@ bind_rows(mod_c_est, mle_c_est) %>%
 ## NOTE: Simulate data with population sizes both very low and fluctuating around K
 
 ## Number of populations
-pops <- 10
+pops <- 12
 
 ## Set parameter values
 tmax <- 100
@@ -793,13 +808,13 @@ for(r in 1:nrow(log_Y)) {
 
 par(mfrow = c(1, 2))
 
-cl <- viridis(10, alpha = 0.6)
+cl <- viridis(pops)
 
-plot(N[1,], type = "l", xlab = "Time", ylab = "N", col = cl[1])
+plot(N[1,], type = "l", xlab = "Time", ylab = "N", col = adjustcolor(cl[1], alpha.f = 0.6))
 
 for(r in 2:nrow(N)) {
 
-  lines(N[r,], type = "l", col = cl[r])
+  lines(N[r,], type = "l", col = adjustcolor(cl[r], alpha.f = 0.6))
 
 }
 
@@ -869,10 +884,11 @@ predict_r_mult_nimble <- nimbleCode({
 
   for(i in 1:pops) {
 
-    mu_r1[i] ~ dlnorm(meanlog = 0, sdlog = 0.5)
-    sigma_e2[i] ~ dunif(0, 1)
+    #mu_r1[i] ~ dlnorm(meanlog = 0, sdlog = 0.5)
+    mu_r1[i] ~ dunif(-5, 5)
+    sigma_e2[i] ~ dunif(0, 10)
     K[i] ~ dunif(1, max_K)
-    theta[i] ~ dunif(-2, 10)
+    theta[i] ~ dunif(-10, 10)
 
   }
 
@@ -920,9 +936,9 @@ input_constants_b2 <- list(tmax = tmax, max_K = K*2, sigma_d2 = rep(sigma_d2, po
 params_b2 <- c("K", "theta", "sigma_e2", "mu_r1", "gamma")
 
 ## Set MCMC parameters
-niter <- 35000
-nburnin <- 25000
-nthin <- 20
+niter <- 60000
+nburnin <- 40000
+nthin <- 50
 nchains <- 3
 
 #------------#
@@ -948,11 +964,11 @@ coda::gelman.diag(mod_b2)
 #----------------------------#
 
 mle_b2 <- purrr::map2(.x = asplit(N, 1),
-                      .y = 1:10,
+                      .y = 1:pops,
                       .f = ~{
 
-                        cat("\nMLE theta-logistic estimation (", .y, "/10)\n", sep = "")
-                        thetalogistic.est(.x, year = seq_len(tmax), sd = sigma_d2, nboot = nrow(as.matrix(mod_c)))
+                        cat("\nMLE theta-logistic estimation (", .y, "/", pops, ")\n", sep = "")
+                        thetalogistic.est(.x, year = seq_len(tmax), sd = sigma_d2, nboot = nrow(as.matrix(mod_b2)))
 
                       })
 
@@ -962,14 +978,18 @@ true_est <- tibble::tibble(
   type = "true"
 )
 
-plot_mult_nim_est <- function(par) {
+# Plot NIMBLE outputs
+plot_mult_nim_est <- function(par, nim, mle) {
+
+  xmin <- min(c(min(as.matrix(nim)[,grepl(par, colnames(as.matrix(nim)))]), min(unlist(map(mle, cd[cd$Par == par,]$Nr)))))*0.95
+  xmax <- max(c(max(as.matrix(nim)[,grepl(par, colnames(as.matrix(nim)))]), max(unlist(map(mle, cd[cd$Par == par,]$Nr)))))*1.05
 
   data <- purrr::map_dfr(.x = 1:pops,
                  .f =  ~{
 
                    tibble::tibble(
                      x = par,
-                     val = as.matrix(mod_b2)[, paste0(par, "[", .x, "]")],
+                     val = as.matrix(nim)[, paste0(par, "[", .x, "]")],
                      repl = as.character(.x),
                      chain = rep(seq_len(nchains), each = (niter-nburnin)/nthin)
                    )
@@ -978,27 +998,36 @@ plot_mult_nim_est <- function(par) {
 
   ggplot(data, aes(x = val)) +
     geom_vline(xintercept = true_est[true_est$x == par, ]$val) +
-    geom_density(mapping = aes(color = repl, group = repl), alpha = 0.75) +
+    geom_line(mapping = aes(color = repl, group = repl), stat = "density", alpha = 0.75) +
+    #geom_density(mapping = aes(color = repl, group = repl), alpha = 0.5) +
     theme_classic(base_family = "Roboto") +
     labs(x = par, y = "Density") +
-    scale_color_manual(values = cl) +
+    coord_cartesian(xlim = c(xmin, xmax)) +
+    #scale_color_manual(values = cl) +
+    ggthemes::scale_color_tableau(palette = "Tableau 20") +
     scale_x_continuous(breaks = scales::pretty_breaks()) +
     scale_y_continuous(breaks = scales::pretty_breaks()) +
     theme(legend.position = "none")
 
 }
 
-cowplot::plot_grid(plotlist = purrr::map(c("K", "mu_r1", "sigma_e2", "gamma"), ~{plot_mult_nim_est(.x)}))
+multi_nim_b <- cowplot::plot_grid(plotlist = purrr::map(c("K", "mu_r1", "sigma_e2", "gamma"), ~{plot_mult_nim_est(.x, mod_b2, mle_b2)}), align = "v")
 
-plot_mult_mle_est <- function(par) {
+#
+cd <- tibble::tibble(
+  Par = c("K", "mu_r1", "sigma_e2", "gamma"),
+  Arg = c("boot.K", "boot.r1", "boot.se", "boot.gamma"),
+  Nr = c(16, 17, 19, 18)
+)
 
-  cd <- tibble::tibble(
-    Par = c("K", "mu_r1", "sigma_e2", "gamma"),
-    Arg = c("boot.K", "boot.r1", "boot.se", "boot.gamma")
-  )
+# Plot MLE outputs
+plot_mult_mle_est <- function(par, nim, mle) {
 
-  data <- purrr::map2_dfr(.x = mle_b2,
-                         .y = 1:length(mle_b2),
+  xmin <- min(c(min(as.matrix(nim)[,grepl(par, colnames(as.matrix(nim)))]), min(unlist(map(mle, cd[cd$Par == par,]$Nr)))))*0.95
+  xmax <- max(c(max(as.matrix(nim)[,grepl(par, colnames(as.matrix(nim)))]), max(unlist(map(mle, cd[cd$Par == par,]$Nr)))))*1.05
+
+  data <- purrr::map2_dfr(.x = mle,
+                         .y = 1:length(mle),
                          .f =  ~{
 
                            tibble::tibble(
@@ -1011,14 +1040,187 @@ plot_mult_mle_est <- function(par) {
 
   ggplot(data, aes(x = val)) +
     geom_vline(xintercept = true_est[true_est$x == par, ]$val) +
-    geom_density(mapping = aes(color = repl, group = repl), alpha = 0.75) +
+    geom_line(mapping = aes(color = repl, group = repl), stat = "density", alpha = 0.75) +
+    #geom_density(mapping = aes(color = repl, group = repl), ) +
     theme_classic(base_family = "Roboto") +
     labs(x = par, y = "Density") +
-    scale_color_manual(values = cl) +
+    coord_cartesian(xlim = c(xmin, xmax)) +
+    #scale_color_manual(values = dl) +
+    ggthemes::scale_color_tableau(palette = "Tableau 20") +
     scale_x_continuous(breaks = scales::pretty_breaks()) +
     scale_y_continuous(breaks = scales::pretty_breaks()) +
     theme(legend.position = "none")
 
 }
 
-cowplot::plot_grid(plotlist = purrr::map(c("K", "mu_r1", "sigma_e2", "gamma"), ~{plot_mult_mle_est(.x)}))
+multi_mle_b <- cowplot::plot_grid(plotlist = purrr::map(c("K", "mu_r1", "sigma_e2", "gamma"), ~{plot_mult_mle_est(.x, mod_b2, mle_b2)}), align = "v")
+
+# Combine in one plot
+cowplot::plot_grid(multi_nim_b, multi_mle_b, nrow = 1, labels = list("NIM", "MLE"))
+ggsave(here::here("inst", "images", "multi-outputs.png"), width = 12, height = 7, units = "in")
+
+
+#-----------------------------#
+# MODEL C2 ####
+# Model for population growth
+# Predicting r
+# Including observation error
+# Multiple populations
+#-----------------------------#
+
+#--------------------------#
+# ... NIMBLE model code ####
+#--------------------------#
+
+predict_r_mult_nimble_obs <- nimbleCode({
+
+  #-----------------------------------#
+  # PROCESS MODEL (POPULATION GROWTH) #
+  #-----------------------------------#
+
+  # Initialize N
+
+  for (i in 1:pops){
+
+    N[i, 1] <- initial_N[i]
+
+    for (t in 1:(tmax-1)){
+
+      s[i, t] <- mu_r1[i] - (0.5 * sigma_e2[i]) - (0.5 * sigma_d2[i] / N[i, t])
+
+      pred_r[i, t] <- s[i, t] - mu_r1[i] * (((N[i, t] ^ theta[i]) - 1) / ((K[i] ^ theta[i]) - 1))
+
+      var_r1[i, t] <- sigma_e2[i] + ((sigma_d2[i]) / N[i, t])
+
+      log(N[i, t+1]) ~ dnorm(log(N[i, t]) + pred_r[i, t], sd = sqrt(var_r1[i, t]))
+
+    }
+
+  }
+
+  #-------------------#
+  # OBSERVATION MODEL #
+  #-------------------#
+
+  for (i in 1:pops){
+
+    for (t in 1:(tmax-1)){
+
+      #logN_obs[t] ~ dnorm(p_obs[t] * (log(N[t]) - 0.5 * sigma_obs^2), sd = sigma_obs)
+      #N_obs[i, t] ~ dnorm(p_obs[i, t] * N[i, t], sd = sigma_obs[i])
+
+      # NB: lognormal observation error can be realistically expected in many ecological settings
+      # see (e.g. Dennis et al. 2006 Ecological Monographs)
+
+      N_obs[i, t] ~ dpois(N[i, t] * p_obs[i, t])
+    }
+
+  }
+
+  #------------------------#
+  # PRIORS AND CONSTRAINTS #
+  #------------------------#
+
+  for (i in 1:pops){
+
+    mu_r1[i] ~ dunif(-5, 5)
+    #mu_r1 ~ dlnorm(meanlog = 0, sdlog = 0.5)
+    sigma_e2[i] ~ dunif(0, 10)
+    K[i] ~ dunif(1, max_K)
+    theta[i] ~ dunif(-10, 10)
+    #theta ~ dlogis(location = 3, scale = 1)
+
+    #sigma_obs[i] ~ dunif(0, 10)
+    initial_N[i] ~ dunif(1, max_N1)
+
+  }
+
+  #--------------------#
+  # DERIVED PARAMETERS #
+  #--------------------#
+
+  for (i in 1:pops){
+
+    gamma[i] <- mu_r1[i] * theta[i] / (1 - K[i] ^ (-theta[i]))
+
+  }
+
+})
+
+#-------------------#
+# Initial values
+#-------------------#
+
+## Function to sample initial values
+sample_inits_c2 <- function(){
+
+  list(
+    mu_r1 = runif(pops, 0.1, 0.5),
+    sigma_e2 = runif(pops, 0, 0.1),
+    theta = runif(pops, 1.2, 2.5),
+    K = rep(K, pops)#,
+    #sigma_obs = runif(pops, 0, 0.1)
+  )
+
+}
+
+## Sample initial values
+inits_c2 <- list(sample_inits_c2(), sample_inits_c2(), sample_inits_c2())
+
+input_data_c2 <- list(N_obs = round(exp(log_Y)), p_obs = matrix(1, nrow = pops, ncol = tmax))
+
+input_constants_c2 <- list(tmax = tmax, max_K = K*2,
+                           max_N1 = max(N),
+                           sigma_d2 = rep(sigma_d2, pops))
+
+## Set parameters to monitor
+#params_c2 <- c("K", "theta", "sigma_e2", "mu_r1", "gamma", "sigma_obs")
+params_c2 <- c("K", "theta", "sigma_e2", "mu_r1", "gamma")
+
+## Set MCMC parameters
+niter <- 105000
+nburnin <- 85000
+nthin <- 50
+nchains <- 3
+
+#------------#
+# Run model
+#------------#
+
+mod_c2 <- nimbleMCMC(code = predict_r_mult_nimble_obs,
+                     constants = input_constants_c2,
+                     data = input_data_c2,
+                     inits = inits_c2,
+                     monitors = params_c2,
+                     niter = niter,
+                     nburnin = nburnin,
+                     thin = nthin,
+                     nchains = nchains,
+                     #setSeed = mySeed,
+                     samplesAsCodaMCMC = TRUE)
+
+coda::gelman.diag(mod_c2)
+
+#----------------------------#
+# ... Comparison with MLE ####
+#----------------------------#
+
+mle_c2 <- purrr::map2(.x = asplit(N, 1),
+                      .y = 1:pops,
+                      .f = ~{
+
+                        cat("\nMLE theta-logistic estimation (", .y, "/", pops, ")\n", sep = "")
+                        thetalogistic.est(.x, year = seq_len(tmax), sd = sigma_d2, nboot = nrow(as.matrix(mod_c2)))
+
+                      })
+
+true_est <- tibble::tibble(
+  x = c("K", "mu_r1", "sigma_e2", "gamma"),
+  val = c(K, mu_r1, sigma_e2, gamma),
+  type = "true"
+)
+
+multi_nim_c <- cowplot::plot_grid(plotlist = purrr::map(c("K", "mu_r1", "sigma_e2", "gamma"), ~{plot_mult_nim_est(.x, mod_c2, mle_b2)}), align = "h", nrow = 1)
+multi_mle_c <- cowplot::plot_grid(plotlist = purrr::map(c("K", "mu_r1", "sigma_e2", "gamma"), ~{plot_mult_mle_est(.x, mod_c2, mle_b2)}), align = "h", nrow = 1)
+cowplot::plot_grid(multi_nim_c, multi_mle_c, nrow = 2, labels = list("NIM", "MLE"))
+ggsave(here::here("inst", "images", "multi-outputs_c.png"), width = 12, height = 7, units = "in")
