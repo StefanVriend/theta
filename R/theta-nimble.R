@@ -9,7 +9,7 @@ mySeed <- 74
 set.seed(mySeed)
 
 #-----------------------------------------------#
-# Basic NIMBLE function for population growth
+# Basic NIMBLE functions for population growth
 #-----------------------------------------------#
 
 predict_N <- nimbleFunction(
@@ -43,7 +43,27 @@ predict_N <- nimbleFunction(
   }
 )
 
-predict_N_c <- compileNimble(predict_N)
+
+predict_r <- nimbleFunction(
+  run = function(
+    N_current = double(),
+    mu_r1 = double(),
+    sigma_e2 = double(),
+    sigma_d2 = double(),
+    theta = double(),
+    K = double()
+  ) {
+
+    s <- mu_r1 - (0.5 * sigma_e2) - (0.5 * sigma_d2 / N_current)
+
+    pred_r <- s - mu_r1 * (((N_current^theta)-1) / ((K^theta)-1))
+
+    if(is.na(pred_r)) stop('Predicted population growth rate (pred_r) is NA')
+
+    returnType(double())
+    return(pred_r)
+  }
+)
 
 #--------------------#
 # Data simulation ####
@@ -239,15 +259,16 @@ input_constants_a <- list(tmax = tmax, max_N1 = N[1]*2, max_K = K*2, sigma_d = s
 params_a <- c("K", "theta", "sigma_e", "mu_r1", "gamma", "epsilon_r1", "N")
 
 ## Set MCMC parameters
-niter <- 10000
-nburnin <- 5000
-nthin <- 10
+niter <- 35000
+nburnin <- 25000
+nthin <- 20
 nchains <- 3
 
 #------------#
 # Run model
 #------------#
 
+start <- Sys.time()
 mod_a <- nimbleMCMC(code = predict_N_nimble,
                     constants = input_constants_a,
                     data = input_data_a,
@@ -259,6 +280,7 @@ mod_a <- nimbleMCMC(code = predict_N_nimble,
                     nchains = nchains,
                     #setSeed = mySeed,
                     samplesAsCodaMCMC = TRUE)
+dur_a <- Sys.time() - start
 
 #--------------#
 # Plot results
@@ -457,7 +479,7 @@ nchains <- 3
 #------------#
 # Run model
 #------------#
-
+start <- Sys.time()
 mod_b <- nimbleMCMC(code = predict_r_nimble,
                     constants = input_constants_b,
                     data = input_data_b,
@@ -469,6 +491,7 @@ mod_b <- nimbleMCMC(code = predict_r_nimble,
                     nchains = nchains,
                     #setSeed = mySeed,
                     samplesAsCodaMCMC = TRUE)
+dur_b <- Sys.time() - start
 
 coda::gelman.diag(mod_b)
 
@@ -945,6 +968,7 @@ nchains <- 3
 # Run model
 #------------#
 
+start <- Sys.time()
 mod_b2 <- nimbleMCMC(code = predict_r_mult_nimble,
                     constants = input_constants_b2,
                     data = input_data_b2,
@@ -956,6 +980,7 @@ mod_b2 <- nimbleMCMC(code = predict_r_mult_nimble,
                     nchains = nchains,
                     #setSeed = mySeed,
                     samplesAsCodaMCMC = TRUE)
+dur_b2 <- Sys.time() - start
 
 coda::gelman.diag(mod_b2)
 
