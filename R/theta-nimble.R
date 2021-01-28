@@ -1,5 +1,6 @@
 library(tidyverse)
 library(nimble)
+library(viridis)
 library(extrafont)
 extrafont::loadfonts(device = "win")
 
@@ -771,7 +772,7 @@ bind_rows(mod_c_est, mle_c_est) %>%
 ## NOTE: Simulate data with population sizes both very low and fluctuating around K
 
 ## Number of populations
-pops <- 12
+pops <- 25
 
 ## Set parameter values
 tmax <- 100
@@ -875,9 +876,9 @@ predict_r_mult_nimble <- nimbleCode({
 
     for (t in 1:(tmax-1)){
 
-      s[i, t] <- mu_r1[i] - (0.5 * sigma_e2[i]) - (0.5 * sigma_d2[i] / N[i, t])
-
-      pred_r[i, t] <- s[i, t] - mu_r1[i] * (((N[i, t] ^ theta[i]) - 1) / ((K[i] ^ theta[i]) - 1))
+      pred_r[i, t] <- predict_r(N_current = N[i, t], mu_r1 = mu_r1[i],
+                                sigma_e2 = sigma_e2[i], sigma_d2 = sigma_d2[i],
+                                theta = theta[i], K = K[i])
 
     }
 
@@ -997,10 +998,18 @@ mle_b2 <- purrr::map2(.x = asplit(N, 1),
 
                       })
 
+# True values
 true_est <- tibble::tibble(
   x = c("K", "mu_r1", "sigma_e2", "gamma", "sigma_obs"),
   val = c(K, mu_r1, sigma_e2, gamma, sigma_Y),
   type = "true"
+)
+
+# Recoding table
+cd <- tibble::tibble(
+  Par = c("K", "mu_r1", "sigma_e2", "gamma"),
+  Arg = c("boot.K", "boot.r1", "boot.se", "boot.gamma"),
+  Nr = c(16, 17, 19, 18)
 )
 
 # Plot NIMBLE outputs
@@ -1022,14 +1031,15 @@ plot_mult_nim_est <- function(par, nim, mle) {
                  })
 
   ggplot(data, aes(x = val)) +
-    geom_vline(xintercept = true_est[true_est$x == par, ]$val) +
-    geom_line(mapping = aes(color = repl, group = repl), stat = "density", alpha = 0.75) +
+    geom_vline(xintercept = true_est[true_est$x == par, ]$val, linetype = "dashed") +
+    geom_line(mapping = aes(color = repl, group = repl), stat = "density", alpha = 0.5) +
     #geom_density(mapping = aes(color = repl, group = repl), alpha = 0.5) +
     theme_classic(base_family = "Roboto") +
     labs(x = par, y = "Density") +
     coord_cartesian(xlim = c(xmin, xmax)) +
     #scale_color_manual(values = cl) +
-    ggthemes::scale_color_tableau(palette = "Tableau 20") +
+    #ggthemes::scale_color_tableau(palette = "Tableau 20") +
+    scale_color_hue() +
     scale_x_continuous(breaks = scales::pretty_breaks()) +
     scale_y_continuous(breaks = scales::pretty_breaks()) +
     theme(legend.position = "none")
@@ -1037,13 +1047,6 @@ plot_mult_nim_est <- function(par, nim, mle) {
 }
 
 multi_nim_b <- cowplot::plot_grid(plotlist = purrr::map(c("K", "mu_r1", "sigma_e2", "gamma"), ~{plot_mult_nim_est(.x, mod_b2, mle_b2)}), align = "v")
-
-#
-cd <- tibble::tibble(
-  Par = c("K", "mu_r1", "sigma_e2", "gamma"),
-  Arg = c("boot.K", "boot.r1", "boot.se", "boot.gamma"),
-  Nr = c(16, 17, 19, 18)
-)
 
 # Plot MLE outputs
 plot_mult_mle_est <- function(par, nim, mle) {
@@ -1065,13 +1068,14 @@ plot_mult_mle_est <- function(par, nim, mle) {
 
   ggplot(data, aes(x = val)) +
     geom_vline(xintercept = true_est[true_est$x == par, ]$val) +
-    geom_line(mapping = aes(color = repl, group = repl), stat = "density", alpha = 0.75) +
+    geom_line(mapping = aes(color = repl, group = repl), stat = "density", alpha = 0.5) +
     #geom_density(mapping = aes(color = repl, group = repl), ) +
     theme_classic(base_family = "Roboto") +
     labs(x = par, y = "Density") +
     coord_cartesian(xlim = c(xmin, xmax)) +
     #scale_color_manual(values = dl) +
-    ggthemes::scale_color_tableau(palette = "Tableau 20") +
+    #ggthemes::scale_color_tableau(palette = "Tableau 20") +
+    scale_color_hue() +
     scale_x_continuous(breaks = scales::pretty_breaks()) +
     scale_y_continuous(breaks = scales::pretty_breaks()) +
     theme(legend.position = "none")
@@ -1249,3 +1253,260 @@ multi_nim_c <- cowplot::plot_grid(plotlist = purrr::map(c("K", "mu_r1", "sigma_e
 multi_mle_c <- cowplot::plot_grid(plotlist = purrr::map(c("K", "mu_r1", "sigma_e2", "gamma"), ~{plot_mult_mle_est(.x, mod_c2, mle_b2)}), align = "h", nrow = 1)
 cowplot::plot_grid(multi_nim_c, multi_mle_c, nrow = 2, labels = list("NIM", "MLE"))
 ggsave(here::here("inst", "images", "multi-outputs_c.png"), width = 12, height = 7, units = "in")
+
+
+
+#-----------------------------#
+# MODEL B3 ####
+# Model for population growth
+# Predicting r
+# No observation error
+# Multiple populations
+# Hierarchical structure
+#-----------------------------#
+
+#-----------------------------#
+# Multiple data simulation ####
+#-----------------------------#
+
+## NOTE: Simulate data with population sizes both very low and fluctuating around K
+
+## Number of populations
+pops <- 25
+
+## Set parameter values
+tmax <- 100
+mu_r1 <- 0.5 # up to 1
+sigma_e2 <- 0.01
+sigma_e <- sqrt(sigma_e2)
+sigma_d2 <- 0.2
+sigma_d <- sqrt(sigma_d2)
+K <- 100
+theta <- 1.2
+
+## Simulate random effects
+
+## Prepare population vector and set initial population size
+N <- matrix(NA, nrow = pops, ncol = tmax)
+N[,1] <- 10
+
+epsilon_r1 <- rep(NA, tmax-1)
+
+## Use nimble function to predict population size over time
+for(r in 1:nrow(N)) {
+  for(t in 1:(tmax-1)){
+
+    epsilon_r1[t] <- rnorm(1, 0, sqrt(sigma_e^2 + ((sigma_d^2) / N[r, t])))
+
+    N[r, t+1] <- predict_N(N_current = N[r, t], mu_r1 = mu_r1, epsilon_r1 = epsilon_r1[t],
+                           K = K, theta = theta, #beta.r1 = 0, EnvCov = 0,
+                           sigma_e = sigma_e,
+                           sigma_d = sigma_d)
+
+  }
+}
+
+gamma <- mu_r1*theta/(1-K^(-theta))
+
+obs_r <- matrix(NA, nrow = nrow(N), ncol = tmax-1)
+
+for(r in 1:nrow(N)) {
+
+  obs_r[r,] <- diff(log(N[r,]))
+
+}
+
+## log(N) and observation error
+sigma_Y <- 0.1
+
+log_Y <- matrix(NA, nrow = nrow(N), ncol = ncol(N))
+for(r in 1:nrow(log_Y)) {
+
+  log_Y[r,] <- rnorm(length(N[r,]), log(N[r,]) - 0.5 * sigma_Y^2, sigma_Y)
+
+}
+
+
+#--------------------------#
+# ... NIMBLE model code ####
+#--------------------------#
+
+predict_r_mh_nimble <- nimbleCode({
+
+  #-----------------------------------#
+  # PROCESS MODEL (POPULATION GROWTH) #
+  #-----------------------------------#
+
+  for (i in 1:pops){
+
+    for (t in 1:(tmax-1)){
+
+      pred_r[i, t] <- predict_r(N_current = N[i, t], mu_r1 = mu_r1[i],
+                                sigma_e2 = sigma_e2[i], sigma_d2 = sigma_d2[i],
+                                theta = theta[i], K = K[i])
+
+    }
+
+  }
+
+
+  #-------------------#
+  # OBSERVATION MODEL #
+  #-------------------#
+
+  for (i in 1:pops){
+
+    for (t in 1:(tmax-1)){
+
+      obs_r[i, t] ~ dnorm(pred_r[i,t], var = var_r1[i, t])
+
+      var_r1[i, t]  <- sigma_e2[i] + ((sigma_d2[i]) / N[i, t])
+
+    }
+
+  }
+
+
+  #------------------------#
+  # PRIORS AND CONSTRAINTS #
+  #------------------------#
+
+  for(i in 1:pops) {
+
+    mu_r1[i] <- mean_mu_r1 + epsilon_mu_r1[i]
+    epsilon_mu_r1[i] ~ dnorm(0, sd = sd_mu_r1)
+
+    log(sigma_e2[i]) <- log(mean_sigma_e2) + epsilon_sigma_e2[i]
+    epsilon_sigma_e2[i] ~ dnorm(0, sd = sd_sigma_e2)
+
+    theta[i] <- mean_theta[species[i]]
+
+    K[i] ~ dunif(1, max_K)
+
+  }
+
+  mean_mu_r1 ~ dunif(-5, 5)
+  sd_mu_r1 ~ dunif(0, 5)
+
+  mean_sigma_e2 ~ dunif(0, 1)
+  sd_sigma_e2 ~ dunif(0, 1)
+
+  for(i in 1:sps) {
+
+    mean_theta[i] ~ dunif(-10, 10)
+
+  }
+
+  #--------------------#
+  # DERIVED PARAMETERS #
+  #--------------------#
+
+  for(i in 1:pops) {
+
+    gamma[i] <- mu_r1[i] * theta[i] / (1 - K[i] ^ (-theta[i]))
+
+  }
+
+
+})
+
+## Function to sample initial values
+sample_inits_b3 <- function(){
+
+  list(
+    mean_mu_r1 = rnorm(1, 1, 0.5),
+    sd_mu_r1 = runif(1, 0, 1),
+    mean_sigma_e2 = runif(1, 0, 1),
+    sd_sigma_e2 = runif(1, 0, 1),
+    epsilon_sigma_e2 = rep(0, pops),
+    epsilon_mu_r1 = rep(0, pops),
+    mean_theta = rnorm(sps, 2, 0.5),
+    K = rep(K, pops)
+  )
+
+}
+
+## Sample initial values
+#inits_b3 <- list(sample_inits_b3())
+inits_b3 <- list(sample_inits_b3(), sample_inits_b3(), sample_inits_b3())
+
+#-----------------------------#
+# NIMBLE model and MCMC setup
+#-----------------------------#
+
+## Set data and constants
+input_data_b3 <- list(N = round(N), obs_r = obs_r)
+
+input_constants_b3 <- list(tmax = tmax, max_K = K*2, sigma_d2 = rep(sigma_d2, pops), pops = pops, sps = sps)
+
+## Set parameters to monitor
+params_b3 <- c("K", "theta", "mean_sigma_e2", "sd_sigma_e2", "mean_mu_r1", "sd_mu_r1", "gamma", "mu_r1", "sigma_e2")
+
+## Set MCMC parameters
+niter <- 60000
+nburnin <- 40000
+nthin <- 50
+nchains <- 3
+
+#------------#
+# Run model
+#------------#
+
+start <- Sys.time()
+mod_b3 <- nimbleMCMC(code = predict_r_mh_nimble,
+                     constants = input_constants_b3,
+                     data = input_data_b3,
+                     inits = inits_b3,
+                     monitors = params_b3,
+                     niter = niter,
+                     nburnin = nburnin,
+                     thin = nthin,
+                     nchains = nchains,
+                     #setSeed = mySeed,
+                     samplesAsCodaMCMC = TRUE)
+dur_b3 <- Sys.time() - start
+
+coda::gelman.diag(mod_b3)
+
+
+# Compare estimates for mu_r1 between B2 & B3
+cowplot::plot_grid(
+
+  plot_mult_nim_est("mu_r1", mod_b2, mle_b2),
+  {purrr::map_dfr(.x = 1:pops,
+                  .f =  ~{
+
+                    tibble::tibble(
+                      x = "mu_r1",
+                      val = as.matrix(mod_b3)[, paste0("mu_r1", "[", .x, "]")],
+                      repl = as.character(.x),
+                      chain = rep(seq_len(nchains), each = (niter-nburnin)/nthin)
+                    )
+
+                  }) %>%
+      ggplot(aes(x = val)) +
+      geom_vline(xintercept = true_est[true_est$x == "mu_r1", ]$val, linetype = "dashed") +
+      geom_line(data = {tibble::tibble(
+        x = "mu_r1",
+        val = as.matrix(mod_b3)[, "mean_mu_r1"],
+        chain = rep(seq_len(nchains), each = (niter-nburnin)/nthin)
+      )}, mapping = aes(x = val), stat = "density", color = "gray30") +
+      geom_line(mapping = aes(color = repl, group = repl), stat = "density", alpha = 0.5) +
+      #geom_density(mapping = aes(color = repl, group = repl), alpha = 0.5) +
+      theme_classic(base_family = "Roboto") +
+      labs(x = "mu_r1", y = "Density") +
+      #coord_cartesian(xlim = c(0, 3)) +
+      #scale_color_manual(values = cl) +
+      #ggthemes::scale_color_tableau(palette = "Tableau 20") +
+      scale_color_grey() +
+      scale_x_continuous(breaks = scales::pretty_breaks()) +
+      scale_y_continuous(breaks = scales::pretty_breaks()) +
+      theme(legend.position = "none")},
+  nrow = 1, align = "h"
+) %>%
+  cowplot::save_plot(plot = ., filename = here::here("inst", "images", "mu_r1.png"), nrow = 1, ncol = 2, base_asp = 1.2)
+
+
+
+
+
