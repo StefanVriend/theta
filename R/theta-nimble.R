@@ -52,10 +52,12 @@ predict_r <- nimbleFunction(
     sigma_e2 = double(),
     sigma_d2 = double(),
     theta = double(),
+    #beta = double(1),
+    #env_cov = double(1),
     K = double()
   ) {
 
-    s <- mu_r1 - (0.5 * sigma_e2) - (0.5 * sigma_d2 / N_current)
+    s <- mu_r1 - (0.5 * sigma_e2) - (0.5 * sigma_d2 / N_current) #+ sum(beta * env_cov)
 
     pred_r <- s - mu_r1 * (((N_current^theta)-1) / ((K^theta)-1))
 
@@ -1410,7 +1412,6 @@ predict_r_mh_nimble <- nimbleCode({
 
   }
 
-
   #-------------------#
   # OBSERVATION MODEL #
   #-------------------#
@@ -1617,3 +1618,211 @@ ggsave(filename = "plots-sigma-e2.pdf",
        plot = gridExtra::marrangeGrob(pl, nrow=3, ncol=3),
        width = 15, height = 15,
        dpi = 450)
+
+
+
+#-----------------------------#
+# Multiple data simulation ####
+#-----------------------------#
+
+## Number of populations and replicates
+pops <- 10
+repl <- 10
+
+pop_vec <- rep(1:pops, each = repl)
+
+## Set parameter values
+tmax <- 60
+
+mean_mu_r1 <- 0.5
+sd_mu_r1 <- 0.2
+epsilon_mu_r1 <- rnorm(pops, mean = 0, sd = sd_mu_r1)
+mu_r1 <- mean_mu_r1 + epsilon_mu_r1
+
+mean_sigma_e2 <- 0.001
+sd_sigma_e2 <- 0.5
+epsilon_sigma_e2 <- rnorm(pops, mean = 0, sd = sd_sigma_e2)
+sigma_e2 <- exp(log(mean_sigma_e2) + epsilon_sigma_e2)
+sigma_e <- sqrt(sigma_e2)
+
+sigma_d2 <- rep(0.4, pops)
+sigma_d <- sqrt(sigma_d2)
+
+K <- round(runif(pops, 200, 400))
+
+theta <- rnorm(pops, 1.2, 0.5)
+
+## Simulate random effects
+
+## Prepare population vector and set initial population size
+N <- matrix(NA, nrow = pops*repl, ncol = tmax)
+N[,1] <- 10
+
+epsilon_r1 <- rep(NA, tmax-1)
+
+## Use nimble function to predict population size over time
+for(r in 1:nrow(N)) {
+  for(t in 1:(tmax-1)){
+
+    epsilon_r1[t] <- rnorm(1, 0, sqrt(sigma_e[pop_vec[r]]^2 + ((sigma_d[pop_vec[r]]^2) / N[r, t])))
+
+    N[r, t+1] <- predict_N(N_current = N[r, t], mu_r1 = mu_r1[pop_vec[r]], epsilon_r1 = epsilon_r1[t],
+                           K = K[pop_vec[r]], theta = theta[pop_vec[r]], #beta.r1 = 0, EnvCov = 0,
+                           sigma_e = sigma_e[pop_vec[r]],
+                           sigma_d = sigma_d[pop_vec[r]])
+
+  }
+}
+
+gamma <- mu_r1*theta/(1-K^(-theta))
+
+obs_r <- matrix(NA, nrow = nrow(N), ncol = tmax-1)
+
+for(r in 1:nrow(N)) {
+
+  obs_r[r,] <- diff(log(N[r,]))
+
+}
+
+
+#------------------------------------------------------#
+# MODEL B4 ####
+# Model for population growth
+# Predicting r
+# No observation error
+# Multiple populations, each with multiple replicates
+# Hierarchical structure
+#------------------------------------------------------#
+
+#--------------------------#
+# ... NIMBLE model code ####
+#--------------------------#
+
+predict_r_mhr_nimble <- nimbleCode({
+
+  #-----------------------------------#
+  # PROCESS MODEL (POPULATION GROWTH) #
+  #-----------------------------------#
+
+  for (j in 1:(repl*pops)){
+
+    for (t in 1:(tmax-1)){
+
+      pred_r[j, t] <- predict_r(N_current = N[j, t], mu_r1 = mu_r1[pop[j]],
+                                sigma_e2 = sigma_e2[pop[j]], sigma_d2 = sigma_d2[pop[j]],
+                                theta = theta[pop[j]], K = K[pop[j]])
+
+    }
+
+  }
+
+  #-------------------#
+  # OBSERVATION MODEL #
+  #-------------------#
+
+  for (j in 1:(repl*pops)){
+
+    for (t in 1:(tmax-1)){
+
+      obs_r[j, t] ~ dnorm(pred_r[j,t], var = var_r1[j, t])
+
+      var_r1[j, t]  <- sigma_e2[pop[j]] + ((sigma_d2[pop[j]]) / N[j, t])
+
+    }
+
+  }
+
+
+  #------------------------#
+  # PRIORS AND CONSTRAINTS #
+  #------------------------#
+
+  for(i in 1:pops) {
+
+    mu_r1[i] <- mean_mu_r1 + epsilon_mu_r1[i]
+    epsilon_mu_r1[i] ~ dnorm(0, sd = sd_mu_r1)
+
+    log(sigma_e2[i]) <- log(mean_sigma_e2) + epsilon_sigma_e2[i]
+    epsilon_sigma_e2[i] ~ dnorm(0, sd = sd_sigma_e2)
+
+    theta[i] ~ dunif(-10, 10)
+
+    K[i] ~ dunif(1, max_K[i])
+
+  }
+
+  mean_mu_r1 ~ dunif(-10, 10)
+  sd_mu_r1 ~ dunif(0, 10)
+
+  mean_sigma_e2 ~ dunif(0, 10)
+  sd_sigma_e2 ~ dunif(0, 10)
+
+  #--------------------#
+  # DERIVED PARAMETERS #
+  #--------------------#
+
+  for(i in 1:pops) {
+
+    gamma[i] <- mu_r1[i] * theta[i] / (1 - K[i] ^ (-theta[i]))
+
+  }
+
+
+})
+
+## Function to sample initial values
+sample_inits_b4 <- function(){
+
+  list(
+    mean_mu_r1 = rnorm(1, 0.5, 0.25),
+    sd_mu_r1 = runif(1, 0, 1),
+    epsilon_mu_r1 = rep(0, pops),
+    mean_sigma_e2 = runif(1, 0, 1),
+    sd_sigma_e2 = runif(1, 0, 1),
+    epsilon_sigma_e2 = rep(0, pops),
+    theta = runif(pops, -2, 5),
+    K = K
+  )
+
+}
+
+## Sample initial values
+#inits_b4 <- list(sample_inits_b4())
+inits_b4 <- list(sample_inits_b4(), sample_inits_b4(), sample_inits_b4())
+
+#-----------------------------#
+# NIMBLE model and MCMC setup
+#-----------------------------#
+
+## Set data and constants
+input_data_b4 <- list(N = round(N), obs_r = obs_r)
+
+input_constants_b4 <- list(tmax = tmax, max_K = K*2, sigma_d2 = sigma_d2, pop = pop_vec, pops = pops, repl = repl)
+
+## Set parameters to monitor
+params_b4 <- c("K", "theta", "mean_sigma_e2", "sd_sigma_e2", "mean_mu_r1", "sd_mu_r1", "gamma", "mu_r1", "sigma_e2")
+
+## Set MCMC parameters
+niter <- 200000
+nburnin <- 150000
+nthin <- 100
+nchains <- 3
+
+#------------#
+# Run model
+#------------#
+
+start <- Sys.time()
+mod_b4 <- nimbleMCMC(code = predict_r_mhr_nimble,
+                     constants = input_constants_b4,
+                     data = input_data_b4,
+                     inits = inits_b4,
+                     monitors = params_b4,
+                     niter = niter,
+                     nburnin = nburnin,
+                     thin = nthin,
+                     nchains = nchains,
+                     #setSeed = mySeed,
+                     samplesAsCodaMCMC = TRUE)
+dur_b4 <- Sys.time() - start
+
