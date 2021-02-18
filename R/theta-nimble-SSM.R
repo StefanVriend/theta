@@ -108,17 +108,17 @@ gamma <- mu_r1*theta/(1-K^(-theta))
 
 
 # Remove a set of observations from N
-idxNA <- sample(1:(tmax-1), 4)
+idxNA <- sample(2:(tmax-1), 4)
 N[,idxNA] <- NA
 
-# Calculate obs_r
-obs_r <- matrix(NA, nrow = nrow(N), ncol = tmax-1)
-
-for(r in 1:nrow(N)) {
-
-  obs_r[r,] <- diff(log(N[r,]))
-
-}
+# # Calculate obs_r
+# obs_r <- matrix(NA, nrow = nrow(N), ncol = tmax-1)
+#
+# for(r in 1:nrow(N)) {
+#
+#   obs_r[r,] <- diff(log(N[r,]))
+#
+# }
 
 ## log(N) and observation error
 # sigma_Y <- 0.1
@@ -158,6 +158,8 @@ lines(nn, rr, col = "black")
 
 title(main = bquote(theta~"="~.(theta)*", "*gamma~"="~.(round(gamma, 2))))
 
+## Rename N into obs_N
+obs_N <- round(N)
 
 #-------------------------------#
 # ... NIMBLE model code - B2 ####
@@ -172,6 +174,9 @@ predict_r_mult_nimble <- nimbleCode({
   for (i in 1:pops){
 
     for (t in 1:(tmax-1)){
+
+      # State-process: population growth over time
+      log(N[i, t+1]) <- log(N[i, t]) + pred_r[i, t]
 
       pred_r[i, t] <- predict_r(N_current = N[i, t], mu_r1 = mu_r1[i],
                                 sigma_e2 = sigma_e2[i], sigma_d2 = sigma_d2[i],
@@ -188,11 +193,13 @@ predict_r_mult_nimble <- nimbleCode({
 
   for (i in 1:pops){
 
-    for (t in 1:(tmax-1)){
+    for (t in 1:tmax){
 
-      obs_r[i, t] ~ dnorm(pred_r[i,t], var = var_r1[i, t])
-
-      var_r1[i, t]  <- sigma_e2[i] + ((sigma_d2[i]) / N[i, t])
+      obs_N[i, t] ~ dpois(N[i, t])
+      # NOTE:A variety of distributions may be suitable here.
+      #      Alternatives include:
+      #      - (truncated) normal, with a given observation error
+      #      - binomial, with a given observation probability
 
     }
 
@@ -205,22 +212,15 @@ predict_r_mult_nimble <- nimbleCode({
 
   for(i in 1:pops) {
 
-    # Prior for missing values in N
-    for(t in 1:(tmax-1)){
-      N[i, t] ~ dunif(0, max_K[i]*1.5)
-    }
-    # NOTE: A variety of distributions may be suitable here.
-    #       Alternatives include:
-    #       - discrete uniform (with more or less informative boundaries)
-    #       - truncated normal using mean and sd of whole time-series
-    #       - Poisson with expected value = mean/median of N[t-1] and N[t+1]
-    #       - etc.
-
     #mu_r1[i] ~ dlnorm(meanlog = 0, sdlog = 0.5)
     mu_r1[i] ~ dunif(-5, 5)
     sigma_e2[i] ~ dunif(0, 10)
     K[i] ~ dunif(1, max_K[i])
     theta[i] ~ dunif(-10, 10)
+
+    # Prior for initial population size
+    initialN[i] ~ dunif(0, max_K[i]*1.5)
+    N[i, 1] <- initialN[i]
 
   }
 
@@ -243,19 +243,21 @@ predict_r_mult_nimble <- nimbleCode({
 sample_inits_b2 <- function(){
 
   # Setting initial values for missing data points
-  init.N <- matrix(NA, nrow = nrow(N), ncol = ncol(N))
-  init.N[which(is.na(N))] <- mean(N, na.rm = T)
+  init.obs_N <- matrix(NA, nrow = nrow(obs_N), ncol = ncol(obs_N))
+  init.obs_N[which(is.na(obs_N))] <- round(mean(obs_N, na.rm = T))
 
-  init.obs_r <- matrix(NA, nrow = nrow(obs_r), ncol = ncol(obs_r))
-  init.obs_r[which(is.na(obs_r))] <- 0
+  # Setting initial values for N
+  #init.N <- obs_N
+  #init.N[which(is.na(obs_N))] <- round(mean(obs_N, na.rm = T))
 
   list(
     mu_r1 = rnorm(pops, 1, 0.5),
     sigma_e2  = runif(pops, 0, 1),
     theta = rnorm(pops, 2, 0.5),
     K = rep(K, pops),
-    N = init.N,
-    obs_r = init.obs_r
+    initialN = obs_N[,1],
+    obs_N = init.obs_N#,
+    #N = init.N
   )
 
 }
@@ -269,12 +271,12 @@ inits_b2 <- list(sample_inits_b2(), sample_inits_b2(), sample_inits_b2())
 #-----------------------------#
 
 ## Set data and constants
-input_data_b2 <- list(N = N, obs_r = obs_r)
+input_data_b2 <- list(obs_N = obs_N)
 
 input_constants_b2 <- list(tmax = tmax, max_K = rep(K,pops), sigma_d2 = rep(sigma_d2, pops))
 
 ## Set parameters to monitor
-params_b2 <- c("K", "theta", "sigma_e2", "mu_r1", "gamma")
+params_b2 <- c("K", "theta", "sigma_e2", "mu_r1", "gamma", "N")
 
 ## Set MCMC parameters
 niter <- 10
@@ -302,3 +304,7 @@ mod_b2 <- nimbleMCMC(code = predict_r_mult_nimble,
 
 #coda::gelman.diag(mod_b2)
 
+# NOTE:
+# There are sometimes initialization problems here.
+# This means that if we want to work with this model in practice, we probably
+# need to write a simulation for initial values for all nodes
