@@ -106,6 +106,12 @@ for(r in 1:nrow(N)) {
 
 gamma <- mu_r1*theta/(1-K^(-theta))
 
+
+# Remove a set of observations from N
+idxNA <- sample(1:(tmax-1), 4)
+N[,idxNA] <- NA
+
+# Calculate obs_r
 obs_r <- matrix(NA, nrow = nrow(N), ncol = tmax-1)
 
 for(r in 1:nrow(N)) {
@@ -115,14 +121,14 @@ for(r in 1:nrow(N)) {
 }
 
 ## log(N) and observation error
-sigma_Y <- 0.1
-
-log_Y <- matrix(NA, nrow = nrow(N), ncol = ncol(N))
-for(r in 1:nrow(log_Y)) {
-
-  log_Y[r,] <- rnorm(length(N[r,]), log(N[r,]) - 0.5 * sigma_Y^2, sigma_Y)
-
-}
+# sigma_Y <- 0.1
+#
+# log_Y <- matrix(NA, nrow = nrow(N), ncol = ncol(N))
+# for(r in 1:nrow(log_Y)) {
+#
+#   log_Y[r,] <- rnorm(length(N[r,]), log(N[r,]) - 0.5 * sigma_Y^2, sigma_Y)
+#
+# }
 
 #---------------------#
 # Plot simulated data
@@ -199,6 +205,17 @@ predict_r_mult_nimble <- nimbleCode({
 
   for(i in 1:pops) {
 
+    # Prior for missing values in N
+    for(t in 1:(tmax-1)){
+      N[i, t] ~ dunif(0, max_K[i]*1.5)
+    }
+    # NOTE: A variety of distributions may be suitable here.
+    #       Alternatives include:
+    #       - discrete uniform (with more or less informative boundaries)
+    #       - truncated normal using mean and sd of whole time-series
+    #       - Poisson with expected value = mean/median of N[t-1] and N[t+1]
+    #       - etc.
+
     #mu_r1[i] ~ dlnorm(meanlog = 0, sdlog = 0.5)
     mu_r1[i] ~ dunif(-5, 5)
     sigma_e2[i] ~ dunif(0, 10)
@@ -221,13 +238,14 @@ predict_r_mult_nimble <- nimbleCode({
 
 })
 
-## Introduce NA into obs_r matrix
-obs_r[,7] <- NA
 
 ## Function to sample initial values
 sample_inits_b2 <- function(){
 
   # Setting initial values for missing data points
+  init.N <- matrix(NA, nrow = nrow(N), ncol = ncol(N))
+  init.N[which(is.na(N))] <- mean(N, na.rm = T)
+
   init.obs_r <- matrix(NA, nrow = nrow(obs_r), ncol = ncol(obs_r))
   init.obs_r[which(is.na(obs_r))] <- 0
 
@@ -236,6 +254,7 @@ sample_inits_b2 <- function(){
     sigma_e2  = runif(pops, 0, 1),
     theta = rnorm(pops, 2, 0.5),
     K = rep(K, pops),
+    N = init.N,
     obs_r = init.obs_r
   )
 
