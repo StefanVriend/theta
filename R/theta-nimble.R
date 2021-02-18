@@ -940,7 +940,7 @@ sample_inits_b2 <- function(){
     mu_r1 = rnorm(pops, 1, 0.5),
     sigma_e2  = runif(pops, 0, 1),
     theta = rnorm(pops, 2, 0.5),
-    K = K
+    K = rep(K, pops)
   )
 
 }
@@ -956,7 +956,7 @@ inits_b2 <- list(sample_inits_b2(), sample_inits_b2(), sample_inits_b2())
 ## Set data and constants
 input_data_b2 <- list(N = round(N), obs_r = obs_r)
 
-input_constants_b2 <- list(tmax = tmax, max_K = K*2, sigma_d2 = rep(sigma_d2, pops))
+input_constants_b2 <- list(tmax = tmax, max_K = rep(K,pops), sigma_d2 = rep(sigma_d2, pops))
 
 ## Set parameters to monitor
 params_b2 <- c("K", "theta", "sigma_e2", "mu_r1", "gamma")
