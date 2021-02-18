@@ -73,7 +73,7 @@ predict_r <- nimbleFunction(
 pops <- 5
 
 ## Set parameter values
-tmax <- 10
+tmax <- 30
 mu_r1 <- 0.5 # up to 1
 sigma_e2 <- 0.01
 sigma_e <- sqrt(sigma_e2)
@@ -221,15 +221,22 @@ predict_r_mult_nimble <- nimbleCode({
 
 })
 
+## Introduce NA into obs_r matrix
+obs_r[,7] <- NA
 
 ## Function to sample initial values
 sample_inits_b2 <- function(){
+
+  # Setting initial values for missing data points
+  init.obs_r <- matrix(NA, nrow = nrow(obs_r), ncol = ncol(obs_r))
+  init.obs_r[which(is.na(obs_r))] <- 0
 
   list(
     mu_r1 = rnorm(pops, 1, 0.5),
     sigma_e2  = runif(pops, 0, 1),
     theta = rnorm(pops, 2, 0.5),
-    K = rep(K, pops)
+    K = rep(K, pops),
+    obs_r = init.obs_r
   )
 
 }
@@ -243,7 +250,7 @@ inits_b2 <- list(sample_inits_b2(), sample_inits_b2(), sample_inits_b2())
 #-----------------------------#
 
 ## Set data and constants
-input_data_b2 <- list(N = round(N), obs_r = obs_r)
+input_data_b2 <- list(N = N, obs_r = obs_r)
 
 input_constants_b2 <- list(tmax = tmax, max_K = rep(K,pops), sigma_d2 = rep(sigma_d2, pops))
 
