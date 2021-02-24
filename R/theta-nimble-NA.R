@@ -73,7 +73,7 @@ predict_r <- nimbleFunction(
 pops <- 5
 
 ## Set parameter values
-tmax <- 30
+tmax <- 40
 mu_r1 <- 0.5 # up to 1
 sigma_e2 <- 0.01
 sigma_e <- sqrt(sigma_e2)
@@ -108,8 +108,12 @@ gamma <- mu_r1*theta/(1-K^(-theta))
 
 
 # Remove a set of observations from N
-idxNA <- sample(1:(tmax-1), 4)
-N[,idxNA] <- NA
+# for(r in 1:nrow(N)){
+#
+#   idxNA <- sample(2:(tmax-1), 1)
+#   N[r,idxNA] <- NA
+#
+# }
 
 # Calculate obs_r
 obs_r <- matrix(NA, nrow = nrow(N), ncol = tmax-1)
@@ -119,6 +123,10 @@ for(r in 1:nrow(N)) {
   obs_r[r,] <- diff(log(N[r,]))
 
 }
+
+# Save N & obs_r
+N1 <- N
+obs_r1 <- obs_r
 
 ## log(N) and observation error
 # sigma_Y <- 0.1
@@ -150,7 +158,7 @@ title(main = bquote(K~"="~.(K)*", "*bar(r)~"="~.(mu_r1)*", "*sigma[e]^2~"="~.(si
 #legend("bottomright", col = c("black", "red"), lty = 1, legend = c("True N", "Obs N"), bty = "n", cex = 0.75)
 
 # Plot density dependence
-nn <- seq(0, max(N[1,]), length.out = 1000)
+nn <- seq(0, max(N[1,], na.rm=TRUE), length.out = 1000)
 rr <- mu_r1 - (0.5 * sigma_e2) - mu_r1 * (((nn^theta)-1) / ((K^theta)-1))
 
 plot(N[1, -tmax], diff(log(N[1,])), xlab = "N", ylab = "r", col = "black")
@@ -163,7 +171,7 @@ title(main = bquote(theta~"="~.(theta)*", "*gamma~"="~.(round(gamma, 2))))
 # ... NIMBLE model code - B2 ####
 #-------------------------------#
 
-predict_r_mult_nimble <- nimbleCode({
+predict_r_mult_na_nimble <- nimbleCode({
 
   #-----------------------------------#
   # PROCESS MODEL (POPULATION GROWTH) #
@@ -240,7 +248,7 @@ predict_r_mult_nimble <- nimbleCode({
 
 
 ## Function to sample initial values
-sample_inits_b2 <- function(){
+sample_inits_na <- function(){
 
   # Setting initial values for missing data points
   init.N <- matrix(NA, nrow = nrow(N), ncol = ncol(N))
@@ -261,37 +269,40 @@ sample_inits_b2 <- function(){
 }
 
 ## Sample initial values
-#inits_b2 <- list(sample_inits_b2())
-inits_b2 <- list(sample_inits_b2(), sample_inits_b2(), sample_inits_b2())
+inits_na <- list(sample_inits_na(), sample_inits_na(), sample_inits_na())
 
 #-----------------------------#
 # NIMBLE model and MCMC setup
 #-----------------------------#
 
 ## Set data and constants
-input_data_b2 <- list(N = N, obs_r = obs_r)
+input_data_na <- list(N = N, obs_r = obs_r)
 
-input_constants_b2 <- list(tmax = tmax, max_K = rep(K,pops), sigma_d2 = rep(sigma_d2, pops))
+input_constants_na <- list(tmax = tmax, max_K = rep(K, pops)*2, sigma_d2 = rep(sigma_d2, pops))
 
 ## Set parameters to monitor
-params_b2 <- c("K", "theta", "sigma_e2", "mu_r1", "gamma")
+params_na <- c("K", "theta", "sigma_e2", "mu_r1", "gamma")
 
 ## Set MCMC parameters
-niter <- 10
-nburnin <- 0
-nthin <- 1
+niter <- 200000
+nburnin <- 150000
+nthin <- 100
 nchains <- 3
 
 #------------#
 # Run model
 #------------#
 
+
+## Run 1 ####
+## 0 NA     #
+
 #start <- Sys.time()
-mod_b2 <- nimbleMCMC(code = predict_r_mult_nimble,
-                     constants = input_constants_b2,
-                     data = input_data_b2,
-                     inits = inits_b2,
-                     monitors = params_b2,
+mod_na1 <- nimbleMCMC(code = predict_r_mult_na_nimble,
+                     constants = input_constants_na,
+                     data = input_data_na,
+                     inits = inits_na,
+                     monitors = params_na,
                      niter = niter,
                      nburnin = nburnin,
                      thin = nthin,
@@ -302,3 +313,404 @@ mod_b2 <- nimbleMCMC(code = predict_r_mult_nimble,
 
 #coda::gelman.diag(mod_b2)
 
+
+##      Run 2       ####
+## 1 NA per population #
+
+# Reset N & obs_r
+N <- N1
+obs_r <- obs_r1
+
+# Remove a set of observations from N
+for(r in 1:nrow(N)){
+
+  idxNA <- sample(2:(tmax-1), 1)
+  N[r,idxNA] <- NA
+
+}
+
+# Calculate obs_r
+obs_r <- matrix(NA, nrow = nrow(N), ncol = tmax-1)
+
+for(r in 1:nrow(N)) {
+
+  obs_r[r,] <- diff(log(N[r,]))
+
+}
+
+# Save N & obs_r
+N2 <- N
+obs_r2 <- obs_r
+
+## Sample initial values
+inits_na <- list(sample_inits_na(), sample_inits_na(), sample_inits_na())
+
+## Input data
+input_data_na <- list(N = N, obs_r = obs_r)
+
+## Run model
+mod_na2 <- nimbleMCMC(code = predict_r_mult_na_nimble,
+                     constants = input_constants_na,
+                     data = input_data_na,
+                     inits = inits_na,
+                     monitors = params_na,
+                     niter = niter,
+                     nburnin = nburnin,
+                     thin = nthin,
+                     nchains = nchains,
+                     #setSeed = mySeed,
+                     samplesAsCodaMCMC = TRUE)
+
+
+##      Run 3       ####
+## 2 NA per population #
+
+# Reset N & obs_r
+N <- N1
+obs_r <- obs_r1
+
+# Remove a set of observations from N
+for(r in 1:nrow(N)){
+
+  idxNA <- sample(2:(tmax-1), 2)
+  N[r,idxNA] <- NA
+
+}
+
+# Calculate obs_r
+obs_r <- matrix(NA, nrow = nrow(N), ncol = tmax-1)
+
+for(r in 1:nrow(N)) {
+
+  obs_r[r,] <- diff(log(N[r,]))
+
+}
+
+# Save N & obs_r
+N3 <- N
+obs_r3 <- obs_r
+
+## Sample initial values
+inits_na <- list(sample_inits_na(), sample_inits_na(), sample_inits_na())
+
+## Input data
+input_data_na <- list(N = N, obs_r = obs_r)
+
+## Run model
+mod_na3 <- nimbleMCMC(code = predict_r_mult_na_nimble,
+                      constants = input_constants_na,
+                      data = input_data_na,
+                      inits = inits_na,
+                      monitors = params_na,
+                      niter = niter,
+                      nburnin = nburnin,
+                      thin = nthin,
+                      nchains = nchains,
+                      #setSeed = mySeed,
+                      samplesAsCodaMCMC = TRUE)
+
+
+##      Run 4       ####
+## 5 NA per population #
+
+# Reset N & obs_r
+N <- N1
+obs_r <- obs_r1
+
+# Remove a set of observations from N
+for(r in 1:nrow(N)){
+
+  idxNA <- sample(2:(tmax-1), 5)
+  N[r,idxNA] <- NA
+
+}
+
+# Calculate obs_r
+obs_r <- matrix(NA, nrow = nrow(N), ncol = tmax-1)
+
+for(r in 1:nrow(N)) {
+
+  obs_r[r,] <- diff(log(N[r,]))
+
+}
+
+# Save N & obs_r
+N4 <- N
+obs_r4 <- obs_r
+
+## Sample initial values
+inits_na <- list(sample_inits_na(), sample_inits_na(), sample_inits_na())
+
+## Input data
+input_data_na <- list(N = N, obs_r = obs_r)
+
+## Run model
+mod_na4 <- nimbleMCMC(code = predict_r_mult_na_nimble,
+                      constants = input_constants_na,
+                      data = input_data_na,
+                      inits = inits_na,
+                      monitors = params_na,
+                      niter = niter,
+                      nburnin = nburnin,
+                      thin = nthin,
+                      nchains = nchains,
+                      #setSeed = mySeed,
+                      samplesAsCodaMCMC = TRUE)
+
+
+##      Run 5       ####
+## 10 NA per population #
+
+# Reset N & obs_r
+N <- N1
+obs_r <- obs_r1
+
+# Remove a set of observations from N
+for(r in 1:nrow(N)){
+
+  idxNA <- sample(2:(tmax-1), 10)
+  N[r,idxNA] <- NA
+
+}
+
+# Calculate obs_r
+obs_r <- matrix(NA, nrow = nrow(N), ncol = tmax-1)
+
+for(r in 1:nrow(N)) {
+
+  obs_r[r,] <- diff(log(N[r,]))
+
+}
+
+# Save N & obs_r
+N5 <- N
+obs_r5 <- obs_r
+
+## Sample initial values
+inits_na <- list(sample_inits_na(), sample_inits_na(), sample_inits_na())
+
+## Input data
+input_data_na <- list(N = N, obs_r = obs_r)
+
+## Run model
+mod_na5 <- nimbleMCMC(code = predict_r_mult_na_nimble,
+                      constants = input_constants_na,
+                      data = input_data_na,
+                      inits = inits_na,
+                      monitors = params_na,
+                      niter = niter,
+                      nburnin = nburnin,
+                      thin = nthin,
+                      nchains = nchains,
+                      #setSeed = mySeed,
+                      samplesAsCodaMCMC = TRUE)
+
+
+##      Run 6       ####
+## 5 NA per population in cluster #
+
+# Reset N & obs_r
+N <- N1
+obs_r <- obs_r1
+
+# Remove a set of observations from N
+for(r in 1:nrow(N)){
+
+  idxNA <- seq(sample(2:(tmax-5), 1), length.out = 5)
+  N[r,idxNA] <- NA
+
+}
+
+# Calculate obs_r
+obs_r <- matrix(NA, nrow = nrow(N), ncol = tmax-1)
+
+for(r in 1:nrow(N)) {
+
+  obs_r[r,] <- diff(log(N[r,]))
+
+}
+
+# Save N & obs_r
+N6 <- N
+obs_r6 <- obs_r
+
+## Sample initial values
+inits_na <- list(sample_inits_na(), sample_inits_na(), sample_inits_na())
+
+## Input data
+input_data_na <- list(N = N, obs_r = obs_r)
+
+## Run model
+mod_na6 <- nimbleMCMC(code = predict_r_mult_na_nimble,
+                      constants = input_constants_na,
+                      data = input_data_na,
+                      inits = inits_na,
+                      monitors = params_na,
+                      niter = niter,
+                      nburnin = nburnin,
+                      thin = nthin,
+                      nchains = nchains,
+                      #setSeed = mySeed,
+                      samplesAsCodaMCMC = TRUE)
+
+
+##      Run 7       ####
+## 10 NA per population in cluster #
+
+# Reset N & obs_r
+N <- N1
+obs_r <- obs_r1
+
+# Remove a set of observations from N
+for(r in 1:nrow(N)){
+
+  idxNA <- seq(sample(2:(tmax-10), 1), length.out = 10)
+  N[r,idxNA] <- NA
+
+}
+
+# Calculate obs_r
+obs_r <- matrix(NA, nrow = nrow(N), ncol = tmax-1)
+
+for(r in 1:nrow(N)) {
+
+  obs_r[r,] <- diff(log(N[r,]))
+
+}
+
+# Save N & obs_r
+N7 <- N
+obs_r7 <- obs_r
+
+## Sample initial values
+inits_na <- list(sample_inits_na(), sample_inits_na(), sample_inits_na())
+
+## Input data
+input_data_na <- list(N = N, obs_r = obs_r)
+
+## Run model
+mod_na7 <- nimbleMCMC(code = predict_r_mult_na_nimble,
+                      constants = input_constants_na,
+                      data = input_data_na,
+                      inits = inits_na,
+                      monitors = params_na,
+                      niter = niter,
+                      nburnin = nburnin,
+                      thin = nthin,
+                      nchains = nchains,
+                      #setSeed = mySeed,
+                      samplesAsCodaMCMC = TRUE)
+
+
+##      Run 8       ####
+## 15 NA per population in cluster #
+
+# Reset N & obs_r
+N <- N1
+obs_r <- obs_r1
+
+# Remove a set of observations from N
+for(r in 1:nrow(N)){
+
+  idxNA <- seq(sample(2:(tmax-15), 1), length.out = 15)
+  N[r,idxNA] <- NA
+
+}
+
+# Calculate obs_r
+obs_r <- matrix(NA, nrow = nrow(N), ncol = tmax-1)
+
+for(r in 1:nrow(N)) {
+
+  obs_r[r,] <- diff(log(N[r,]))
+
+}
+
+# Save N & obs_r
+N8 <- N
+obs_r8 <- obs_r
+
+## Sample initial values
+inits_na <- list(sample_inits_na(), sample_inits_na(), sample_inits_na())
+
+## Input data
+input_data_na <- list(N = N, obs_r = obs_r)
+
+## Run model
+mod_na8 <- nimbleMCMC(code = predict_r_mult_na_nimble,
+                      constants = input_constants_na,
+                      data = input_data_na,
+                      inits = inits_na,
+                      monitors = params_na,
+                      niter = niter,
+                      nburnin = nburnin,
+                      thin = nthin,
+                      nchains = nchains,
+                      #setSeed = mySeed,
+                      samplesAsCodaMCMC = TRUE)
+
+
+# Compare runs
+compare_runs <- function(par, true, xlim) {
+
+  data <- purrr::map2_dfr(.x = list(mod_na1, mod_na2, mod_na3, mod_na4,
+                                    mod_na5, mod_na6, mod_na7, mod_na8),
+                          .y = c(0, 1, 2, 5, 10, "CL-5", "CL-10", "CL-15"),
+                          .f = ~{
+
+                            #data <- as.matrix(.x)[, par]
+
+                            tibble(
+                              # mode = max_den(data),
+                              # mean = mean(data),
+                              # median = median(data),
+                              # low = quantile(data, probs = 0.025),
+                              # high = quantile(data, probs = 0.975),
+                              y = as.matrix(.x)[, par],
+                              group = as.character(.y),
+                            )
+
+                          }) %>%
+    dplyr::mutate(group = forcats::fct_relevel(group, c("0", "1", "2", "5", "10", "CL-5", "CL-10"))) %>%
+    dplyr::mutate(NA_type = dplyr::case_when(grepl("CL", group) ~ "Clustered",
+                                             TRUE ~ "Random"))
+
+  mean_data <- data %>%
+    dplyr::group_by(NA_type, group) %>%
+    dplyr::summarise(median = quantile(y, probs = 0.5),
+                     low = quantile(y, probs = 0.025),
+                     high = quantile(y, probs = 0.975),
+                     .groups = "drop")
+
+  ggplot(data = data, aes(y = group, x = y)) +
+    geom_vline(xintercept = true, linetype = "dashed") +
+    ggridges::geom_density_ridges_gradient(aes(fill = NA_type), scale = 0.9) +
+    #ggridges::stat_density_ridges(quantile_lines = TRUE, scale = 0.95) +
+    geom_segment(aes(y = group, yend = group, x = low, xend = high, color = NA_type), data = mean_data, size = 1) +
+    geom_point(aes(y = group, x = median, color = NA_type), data = mean_data, size = 3) +
+    labs(y = "# NAs", x = par) +
+    coord_cartesian(xlim = xlim) +
+    scale_color_manual(values = c("#123a40", "#883041")) +
+    scale_fill_manual(values = c("#319eaf", "#cf7789")) +
+    theme_classic() +
+    theme(axis.text = element_text(color = "black"),
+          legend.position = "none")
+
+}
+
+# Sigma e2
+pl1 <- purrr::map(paste0("sigma_e2[", 1:pops, "]"), ~compare_runs(.x, sigma_e2, c(0, 0.05)))
+
+# Theta
+pl2 <- purrr::map(paste0("theta[", 1:pops, "]"), ~compare_runs(.x, theta, c(-4, 4)))
+
+# Mu_r1
+pl3 <- purrr::map(paste0("mu_r1[", 1:pops, "]"), ~compare_runs(.x, mu_r1, c(0, 3)))
+
+# K
+pl4 <- purrr::map(paste0("K[", 1:pops, "]"), ~compare_runs(.x, K, c(75, 125)))
+
+
+cowplot::save_plot(filename = "pars_na2.pdf", plot = cowplot::plot_grid(plotlist = c(pl1, pl2, pl3, pl4),
+                                                                       nrow = 4, ncol = 5),
+                   nrow = 4, ncol = 5, base_asp = 1.2)
