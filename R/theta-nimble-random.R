@@ -117,10 +117,10 @@ predict_N_random <- nimbleCode({
 
   for(t in 1:(tmax-1)){
 
-    log(N[t+1]) <- log(N[t]) + r0 * (1 - (N[t] / K)^theta) + eps_e[t] #+ eps_d[t]
+    log(N[t+1]) <- log(N[t]) + r0 * (1 - (N[t] / K)^theta) + eps_e[t] + eps_d[t]
 
     eps_e[t] ~ dnorm(0, var = sigma_e2)
-    #eps_d[t] ~ dnorm(0, var = sigma_d2 / N[t])
+    eps_d[t] ~ dnorm(0, var = sigma_d2[t] / N[t])
 
   }
 
@@ -165,7 +165,7 @@ sample_inits <- function(){
     theta = rnorm(1, 2, 0.5),
     K = K,
     eps_e = rep(0, tmax-1),
-    #eps_d = rep(0, tmax-1),
+    eps_d = rep(0, tmax-1),
     initial_N = N[1]#,
     #sigma_obs = runif(1, 0, 10)
   )
@@ -174,16 +174,16 @@ sample_inits <- function(){
 
 input_data <- list(obs_N = N)
 
-input_constants <- list(tmax = tmax, max_K = K * 2, max_N = max(N) * 2)
+input_constants <- list(tmax = tmax, max_K = K * 2, max_N = max(N) * 2, sigma_d2 = rep(sigma_d2, tmax))
 
 inits <- list(sample_inits(), sample_inits(), sample_inits())
 
 params <- c("K", "theta", "sigma_e2", "r0", "gamma")
 
 # Set MCMC parameters
-niter <- 150000
-nburnin <- 100000
-nthin <- 100
+niter <- 10
+nburnin <- 5
+nthin <- 1
 nchains <- 3
 
 # Model
