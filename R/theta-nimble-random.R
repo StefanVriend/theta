@@ -72,6 +72,9 @@ N <- round(N)
 
 obs_r <- diff(log(N))
 
+r0 <- mu_r1 / (1 - K^(-theta))
+
+gamma <- r0 * theta
 
 #-----------------------------------------------#
 # Simulate data from random-effects formulation #
@@ -117,7 +120,8 @@ predict_N_random <- nimbleCode({
 
   for(t in 1:(tmax-1)){
 
-    log(N[t+1]) <- log(N[t]) + r0 * (1 - (N[t] / K)^theta) + eps_e[t] + eps_d[t]
+    #log(N[t+1]) <- log(N[t]) + r0 * (1 - (N[t] / K)^theta) + eps_e[t] + eps_d[t]
+    log(N[t+1]) <- log(N[t]) + mu_r1 * (1 - (((N[t]^theta) - 1) / ((K^theta) - 1))) + eps_e[t] + eps_d[t]
 
     eps_e[t] ~ dnorm(0, var = sigma_e2)
     eps_d[t] ~ dnorm(0, var = sigma_d2[t] / N[t])
@@ -142,7 +146,8 @@ predict_N_random <- nimbleCode({
   initial_N ~ dunif(0, max_N)
   N[1] <- initial_N
 
-  r0 ~ dunif(-5, 5)
+  mu_r1 ~ dunif(-5, 5)
+  #r0 ~ dunif(-5, 5)
   sigma_e2 ~ dunif(0, 10)
   K ~ dunif(1, max_K)
   theta ~ dunif(-10, 10)
@@ -153,14 +158,15 @@ predict_N_random <- nimbleCode({
   # DERIVED PARAMETERS #
   #--------------------#
 
-  gamma <- r0 * theta
+  gamma <- theta * mu_r1 / (1 - K^(-theta))
 
 })
 
 sample_inits <- function(){
 
   list(
-    r0 = rnorm(1, 1, 0.5),
+    #r0 = rnorm(1, 1, 0.5),
+    mu_r1 = rnorm(1, 1, 0.5),
     sigma_e2  = runif(1, 0, 1),
     theta = rnorm(1, 2, 0.5),
     K = K,
@@ -178,12 +184,12 @@ input_constants <- list(tmax = tmax, max_K = K * 2, max_N = max(N) * 2, sigma_d2
 
 inits <- list(sample_inits(), sample_inits(), sample_inits())
 
-params <- c("K", "theta", "sigma_e2", "r0", "gamma")
+params <- c("K", "theta", "sigma_e2", "gamma", "mu_r1")
 
 # Set MCMC parameters
-niter <- 10
-nburnin <- 5
-nthin <- 1
+niter <- 250000
+nburnin <- 200000
+nthin <- 100
 nchains <- 3
 
 # Model
