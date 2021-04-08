@@ -41,7 +41,7 @@ predict_N <- nimbleFunction(
   }
 )
 
-pops <- 1
+pops <- 4
 tmax <- 75
 
 mu_r1 <- 0.5
@@ -52,29 +52,61 @@ sigma_d2 <- 0.2
 sigma_d <- sqrt(sigma_d2)
 theta <- 1.2
 
-N <- rep(NA, tmax)
-N[1] <- 10
+r0 <- mu_r1 / (1 - K^(-theta))
 
-epsilon_r1 <- rep(NA, tmax-1)
+gamma <- r0 * theta
 
-for(t in 1:(tmax-1)){
+# True N
 
-  epsilon_r1[t] <- rnorm(1, 0, sqrt(sigma_e^2 + ((sigma_d^2) / N[t])))
+N <- matrix(NA, nrow = pops, ncol = tmax)
+N[,1] <- 10
 
-  N[t+1] <- predict_N(N_current = N[t], mu_r1 = mu_r1, epsilon_r1 = epsilon_r1[t],
-                      K = K, theta = theta,
-                      sigma_e = sigma_e,
-                      sigma_d = sigma_d)
+epsilon_r1 <- matrix(NA, nrow = pops, ncol = tmax - 1)
 
+for(i in 1:pops) {
+  for(t in 1:(tmax-1)){
+
+    epsilon_r1[i, t] <- rnorm(1, 0, sqrt(sigma_e^2 + ((sigma_d^2) / N[i, t])))
+
+    N[i, t+1] <- predict_N(N_current = N[i, t], mu_r1 = mu_r1, epsilon_r1 = epsilon_r1[i, t],
+                           K = K, theta = theta,
+                           sigma_e = sigma_e,
+                           sigma_d = sigma_d)
+
+  }
 }
 
 N <- round(N)
 
-obs_r <- diff(log(N))
+obs_r <- matrix(NA, nrow = pops, ncol = tmax - 1)
 
-r0 <- mu_r1 / (1 - K^(-theta))
+for(i in 1:pops) {
 
-gamma <- r0 * theta
+  obs_r[i,] <- diff(log(N[i,]))
+
+}
+
+# Observed N
+# Draw from Poisson model
+
+obs_N <- matrix(NA, nrow = pops, ncol = tmax)
+
+for(i in 1:pops){
+
+    obs_N[i,] <- rpois(tmax, N[i,])
+
+}
+
+# Plot N
+cl <- viridis(pops)
+
+plot(N[1,], type = "l", xlab = "Time", ylab = "N", col = adjustcolor(cl[1], alpha.f = 0.6))
+
+for(r in 2:nrow(N)) {
+
+  lines(N[r,], type = "l", col = adjustcolor(cl[r], alpha.f = 0.6))
+
+}
 
 #-----------------------------------------------#
 # Simulate data from random-effects formulation #
@@ -118,39 +150,48 @@ predict_N_random <- nimbleCode({
   # PROCESS MODEL (POPULATION GROWTH) #
   #-----------------------------------#
 
-  for(t in 1:(tmax-1)){
+  for(i in 1:pops){
+    for(t in 1:(tmax-1)){
 
-    #log(N[t+1]) <- log(N[t]) + r0 * (1 - (N[t] / K)^theta) + eps_e[t] + eps_d[t]
-    log(N[t+1]) <- log(N[t]) + mu_r1 * (1 - (((N[t]^theta) - 1) / ((K^theta) - 1))) + eps_e[t] + eps_d[t]
+      #log(N[t+1]) <- log(N[t]) + r0 * (1 - (N[t] / K)^theta) + eps_e[t] + eps_d[t]
+      log(N[i, t+1]) <- log(N[i, t]) + mu_r1[i] * (1 - (((N[i, t]^theta[i]) - 1) / ((K[i]^theta[i]) - 1))) + eps_e[i, t] + eps_d[i, t]
 
-    eps_e[t] ~ dnorm(0, var = sigma_e2)
-    eps_d[t] ~ dnorm(0, var = sigma_d2[t] / N[t])
+      eps_e[i, t] ~ dnorm(0, var = sigma_e2[i])
+      eps_d[i, t] ~ dnorm(0, var = sigma_d2[i, t] / N[i, t])
 
+    }
   }
 
   #-------------------#
   # OBSERVATION MODEL #
   #-------------------#
 
-  for(t in 1:tmax) {
+  for(i in 1:pops) {
+    for(t in 1:tmax) {
 
-    #obs_x[t] ~ dnorm(x[t], sd = sigma_obs)
-    obs_N[t] ~ dpois(N[t])
+      #obs_N[i, t] ~ dnorm(N[i, t], sd = 0.00001)
+      obs_N[i, t] ~ dpois(N[i, t])
 
+    }
   }
 
   #------------------------#
   # PRIORS AND CONSTRAINTS #
   #------------------------#
 
-  initial_N ~ dunif(0, max_N)
-  N[1] <- initial_N
+  for(i in 1:pops) {
 
-  mu_r1 ~ dunif(-5, 5)
-  #r0 ~ dunif(-5, 5)
-  sigma_e2 ~ dunif(0, 10)
-  K ~ dunif(1, max_K)
-  theta ~ dunif(-10, 10)
+    initial_N[i] ~ dunif(0, max_N[i])
+    N[i,1] <- initial_N[i]
+
+    mu_r1[i] ~ dunif(-5, 5)
+    sigma_e2[i] ~ dunif(0, 10)
+    K[i] ~ dunif(1, max_K[i])
+    theta[i] ~ dunif(-10, 10)
+
+  }
+
+
 
   #sigma_obs ~ dunif(0, 100)
 
@@ -158,7 +199,12 @@ predict_N_random <- nimbleCode({
   # DERIVED PARAMETERS #
   #--------------------#
 
-  gamma <- theta * mu_r1 / (1 - K^(-theta))
+  for(i in 1:pops) {
+
+    gamma[i] <- theta[i] * mu_r1[i] / (1 - K[i]^(-theta[i]))
+
+  }
+
 
 })
 
@@ -166,41 +212,43 @@ sample_inits <- function(){
 
   list(
     #r0 = rnorm(1, 1, 0.5),
-    mu_r1 = rnorm(1, 1, 0.5),
-    sigma_e2  = runif(1, 0, 1),
-    theta = rnorm(1, 2, 0.5),
-    K = K,
-    eps_e = rep(0, tmax-1),
-    eps_d = rep(0, tmax-1),
-    initial_N = N[1]#,
+    mu_r1 = rnorm(pops, 1, 0.5),
+    sigma_e2  = runif(pops, 0, 1),
+    theta = rnorm(pops, 2, 0.5),
+    K = rep(K, pops),
+    eps_e = matrix(0, pops, tmax-1),
+    eps_d = matrix(0, pops, tmax-1),
+    initial_N = obs_N[,1]#,
     #sigma_obs = runif(1, 0, 10)
   )
 
 }
 
-input_data <- list(obs_N = N)
+input_data <- list(obs_N = obs_N)
 
-input_constants <- list(tmax = tmax, max_K = K * 2, max_N = max(N) * 2, sigma_d2 = rep(sigma_d2, tmax))
+input_constants <- list(tmax = tmax, max_K = rep(K * 2, pops), max_N = apply(N, 1, max) * 2, sigma_d2 = matrix(sigma_d2, pops, tmax))
 
 inits <- list(sample_inits(), sample_inits(), sample_inits())
 
-params <- c("K", "theta", "sigma_e2", "gamma", "mu_r1")
+params <- c("K", "theta", "sigma_e2", "gamma", "mu_r1", "N")
 
 # Set MCMC parameters
-niter <- 250000
-nburnin <- 200000
+niter <- 200000
+nburnin <- 150000
 nthin <- 100
 nchains <- 3
 
 # Model
-rod <- nimbleMCMC(code = predict_N_random,
-                  constants = input_constants,
-                  data = input_data,
-                  inits = inits,
-                  monitors = params,
-                  niter = niter,
-                  nburnin = nburnin,
-                  thin = nthin,
-                  nchains = nchains,
-                  #setSeed = mySeed,
-                  samplesAsCodaMCMC = TRUE)
+start <- Sys.time()
+rod4 <- nimbleMCMC(code = predict_N_random,
+                   constants = input_constants,
+                   data = input_data,
+                   inits = inits,
+                   monitors = params,
+                   niter = niter,
+                   nburnin = nburnin,
+                   thin = nthin,
+                   nchains = nchains,
+                   #setSeed = mySeed,
+                   samplesAsCodaMCMC = TRUE)
+dr <- Sys.time() - start
