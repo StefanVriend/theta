@@ -252,3 +252,187 @@ rod4 <- nimbleMCMC(code = predict_N_random,
                    #setSeed = mySeed,
                    samplesAsCodaMCMC = TRUE)
 dr <- Sys.time() - start
+
+
+
+## Approximation model for comparison
+predict_r <- nimbleFunction(
+  run = function(
+    N_current = double(),
+    mu_r1 = double(),
+    sigma_e2 = double(),
+    sigma_d2 = double(),
+    theta = double(),
+    #beta = double(1),
+    #env_cov = double(1),
+    K = double()
+  ) {
+
+    s <- mu_r1 - (0.5 * sigma_e2) - (0.5 * sigma_d2 / N_current) #+ sum(beta * env_cov)
+
+    pred_r <- s - mu_r1 * (((N_current^theta)-1) / ((K^theta)-1))
+
+    if(is.na(pred_r)) stop('Predicted population growth rate (pred_r) is NA')
+
+    returnType(double())
+    return(pred_r)
+  }
+)
+
+predict_r_mult_nimble <- nimbleCode({
+
+  #-----------------------------------#
+  # PROCESS MODEL (POPULATION GROWTH) #
+  #-----------------------------------#
+
+
+  for (i in 1:pops){
+    for (t in 1:(tmax-1)){
+
+      pred_r[i, t] <- predict_r(N_current = N[i, t], mu_r1 = mu_r1[i],
+                                sigma_e2 = sigma_e2[i], sigma_d2 = sigma_d2[i],
+                                theta = theta[i], K = K[i])
+
+    }
+  }
+
+
+
+
+  #-------------------#
+  # OBSERVATION MODEL #
+  #-------------------#
+
+  for (i in 1:pops){
+    for (t in 1:(tmax-1)){
+
+      obs_r[i, t] ~ dnorm(pred_r[i, t], var = var_r1[i, t])
+
+      var_r1[i, t]  <- sigma_e2[i] + sigma_d2[i] / N[i, t]
+
+    }
+  }
+
+
+
+  #------------------------#
+  # PRIORS AND CONSTRAINTS #
+  #-----
+
+  for(i in 1:pops){
+
+    mu_r1[i] ~ dunif(-5, 5)
+    sigma_e2[i] ~ dunif(0, 10)
+    K[i] ~ dunif(1, max_K[i])
+    theta[i] ~ dunif(-10, 10)
+
+  }
+
+
+  #--------------------#
+  # DERIVED PARAMETERS #
+  #--------------------#
+
+  for(i in 1:pops){
+
+    gamma[i] <- theta[i] * mu_r1[i] / (1 - K[i]^(-theta[i]))
+
+  }
+
+
+})
+
+sample_inits2 <- function(){
+
+  list(
+    mu_r1 = rnorm(pops, 1, 0.5),
+    sigma_e2  = runif(pops, 0, 1),
+    theta = rnorm(pops, 2, 0.5),
+    K = rep(K, pops)
+  )
+
+}
+
+## Sample initial values
+#inits_b2 <- list(sample_inits_b2())
+inits2 <- list(sample_inits2(), sample_inits2(), sample_inits2())
+
+#-----------------------------#
+# NIMBLE model and MCMC setup
+#-----------------------------#
+
+## Set data and constants
+input_data2 <- list(N = obs_N, obs_r = obs_r)
+
+input_constants2 <- list(tmax = tmax, max_K = rep(K * 2, pops), sigma_d2 = rep(sigma_d2, pops))
+
+## Set parameters to monitor
+params2 <- c("K", "theta", "sigma_e2", "mu_r1", "gamma")
+
+start <- Sys.time()
+mod4 <- nimbleMCMC(code = predict_r_mult_nimble,
+                   constants = input_constants2,
+                   data = input_data2,
+                   inits = inits2,
+                   monitors = params2,
+                   niter = niter,
+                   nburnin = nburnin,
+                   thin = nthin,
+                   nchains = nchains,
+                   #setSeed = mySeed,
+                   samplesAsCodaMCMC = TRUE)
+dm <- Sys.time() - start
+
+
+
+## Compare random-effects model with approximation model
+compare_mods <- function(par, true, models = c("Approx", "Rand-Poisson")) {
+
+  data <- purrr::map2_dfr(.x = list(mod4, rod4),
+                          .y = models,
+                          .f = ~{
+
+                            tibble(
+                              y = as.matrix(.x)[, par],
+                              group = as.character(.y),
+                            )
+
+                          }) %>%
+    dplyr::mutate(group = forcats::fct_relevel(group, models))
+
+  mean_data <- data %>%
+    dplyr::group_by(group) %>%
+    dplyr::summarise(median = quantile(y, probs = 0.5, na.rm = TRUE),
+                     low = quantile(y, probs = 0.025, na.rm = TRUE),
+                     high = quantile(y, probs = 0.975, na.rm = TRUE),
+                     .groups = "drop")
+
+  ggplot(data = data, aes(y = group, x = y)) +
+    geom_vline(xintercept = true, linetype = "dashed") +
+    ggridges::geom_density_ridges(aes(fill = group), scale = 0.9, alpha = 0.5) +
+    geom_segment(aes(y = group, yend = group, x = low, xend = high, color = group), data = mean_data, size = 1) +
+    geom_point(aes(y = group, x = median, color = group), data = mean_data, size = 3) +
+    labs(x = par, y = "") +
+    scale_color_manual(values = c("#164850", "#883041", "#54611a")) +
+    scale_fill_manual(values = c("#319eaf", "#cf7789", "#c5d86d")) +
+    theme_classic() +
+    theme(axis.text = element_text(color = "black"),
+          legend.position = "none")
+
+}
+
+# pl <- purrr::map2(.x = c("sigma_e2", "mu_r1", "K", "theta", "gamma"),
+#                   .y = c(sigma_e2, mu_r1, K, theta, gamma),
+#                   .f = ~{compare_mods(.x, .y)})
+#
+# cowplot::plot_grid(plotlist = pl)
+# cowplot::save_plot(plot = ggplot2::last_plot(), filename = "rand-approx.png", nrow = 2, ncol = 3, base_asp = 1)
+
+pl1 <- cowplot::plot_grid(plotlist = {purrr::map(paste0("sigma_e2[", 1:pops, "]"), ~compare_mods(.x, sigma_e2))}, nrow = 1, align = "h")
+pl2 <- cowplot::plot_grid(plotlist = {purrr::map(paste0("mu_r1[", 1:pops, "]"), ~compare_mods(.x, mu_r1))}, nrow = 1, align = "h")
+pl3 <- cowplot::plot_grid(plotlist = {purrr::map(paste0("K[", 1:pops, "]"), ~compare_mods(.x, K))}, nrow = 1, align = "h")
+pl4 <- cowplot::plot_grid(plotlist = {purrr::map(paste0("theta[", 1:pops, "]"), ~compare_mods(.x, theta))}, nrow = 1, align = "h")
+pl5 <- cowplot::plot_grid(plotlist = {purrr::map(paste0("gamma[", 1:pops, "]"), ~compare_mods(.x, gamma))}, nrow = 1, align = "h")
+
+cowplot::plot_grid(pl1, pl2, pl3, pl4, pl5, nrow = 5, align = "hv")
+cowplot::save_plot(plot = ggplot2::last_plot(), filename = "rand-approx4.png", nrow = 5, ncol = pops, base_asp = 1)
