@@ -215,7 +215,7 @@ predict_N_random_fixed <- nimbleCode({
 
 })
 
-sample_inits5 <- function(){
+sample_inits10 <- function(){
 
   list(
     #r0 = rnorm(1, 1, 0.5),
@@ -231,14 +231,14 @@ sample_inits5 <- function(){
 
 }
 
-input_data5 <- list(obs_N = obs_N)
+input_data10 <- list(obs_N = obs_N)
 
-input_constants5 <- list(tmax = tmax, max_K = rep(K * 2, pops), max_N = apply(N, 1, max) * 2,
+input_constants10 <- list(tmax = tmax, pops = pops, max_K = rep(K * 2, pops), max_N = apply(N, 1, max) * 2,
                           sigma_d2 = rep(sigma_d2, pops), theta = rep(theta, pops))
 
-inits5 <- list(sample_inits5(), sample_inits5(), sample_inits5())
+inits10 <- list(sample_inits10(), sample_inits10(), sample_inits10())
 
-params5 <- c("K", "sigma_e2", "gamma", "mu_r1", "N")
+params10 <- c("K", "sigma_e2", "gamma", "mu_r1", "N")
 
 # Set MCMC parameters
 niter <- 200000
@@ -248,18 +248,18 @@ nchains <- 3
 
 # Model
 start <- Sys.time()
-mod5 <- nimbleMCMC(code = predict_N_random_fixed,
-                   constants = input_constants5,
-                   data = input_data5,
-                   inits = inits5,
-                   monitors = params5,
+mod10 <- nimbleMCMC(code = predict_N_random_fixed,
+                   constants = input_constants10,
+                   data = input_data10,
+                   inits = inits10,
+                   monitors = params10,
                    niter = niter,
                    nburnin = nburnin,
                    thin = nthin,
                    nchains = nchains,
                    setSeed = seed,
                    samplesAsCodaMCMC = TRUE)
-dur5 <- Sys.time() - start
+dur10 <- Sys.time() - start
 
 
 #---------------#
@@ -330,7 +330,7 @@ predict_N_random_unbiased_fixed <- nimbleCode({
 
 })
 
-sample_inits6 <- function(){
+sample_inits11 <- function(){
 
   list(
     #r0 = rnorm(1, 1, 0.5),
@@ -346,12 +346,12 @@ sample_inits6 <- function(){
 
 }
 
-input_data6 <- list(obs_N = obs_N)
+input_data11 <- list(obs_N = obs_N)
 
-input_constants6 <- list(tmax = tmax, max_K = rep(K * 2, pops), max_N = apply(N, 1, max) * 2,
+input_constants11 <- list(tmax = tmax, pops = pops, max_K = rep(K * 2, pops), max_N = apply(N, 1, max) * 2,
                          sigma_d2 = rep(sigma_d2, pops), theta = rep(theta, pops))
 
-params6 <- c("K", "sigma_e2", "gamma", "mu_r1", "N")
+params11 <- c("K", "sigma_e2", "gamma", "mu_r1", "N")
 
 # Set MCMC parameters
 niter <- 200000
@@ -362,24 +362,24 @@ nchains <- 3
 # Model
 start <- Sys.time()
 
-seed6 <- 319
-set.seed(seed6)
+seed11 <- 319
+set.seed(seed11)
 
-inits6 <- list(sample_inits6(), sample_inits6(), sample_inits6())
+inits11 <- list(sample_inits11(), sample_inits11(), sample_inits11())
 
-mod6 <- nimbleMCMC(code = predict_N_random_unbiased_fixed,
-                   constants = input_constants6,
-                   data = input_data6,
-                   inits = inits6,
-                   monitors = params6,
-                   niter = niter,
-                   nburnin = nburnin,
-                   thin = nthin,
-                   nchains = nchains,
-                   setSeed = seed6,
-                   samplesAsCodaMCMC = TRUE)
+mod11 <- nimbleMCMC(code = predict_N_random_unbiased_fixed,
+                    constants = input_constants11,
+                    data = input_data11,
+                    inits = inits11,
+                    monitors = params11,
+                    niter = niter,
+                    nburnin = nburnin,
+                    thin = nthin,
+                    nchains = nchains,
+                    setSeed = seed11,
+                    samplesAsCodaMCMC = TRUE)
 
-dur6 <- Sys.time() - start
+dur11 <- Sys.time() - start
 
 # Three separate chains
 start <- Sys.time()
@@ -537,7 +537,7 @@ predict_r_mult_nimble_fixed <- nimbleCode({
 
 })
 
-sample_inits7 <- function(){
+sample_inits12 <- function(){
 
   list(
     mu_r1 = rnorm(pops, 1, 0.5),
@@ -556,12 +556,12 @@ sample_inits7 <- function(){
 #-----------------------------#
 
 ## Set data and constants
-input_data7 <- list(N = obs_N, obs_r = obs_r)
+input_data12 <- list(N = obs_N, obs_r = obs_r)
 
-input_constants7 <- list(tmax = tmax, max_K = rep(K * 2, pops), sigma_d2 = rep(sigma_d2, pops), theta = rep(theta, pops))
+input_constants12 <- list(tmax = tmax, max_K = rep(K * 2, pops), sigma_d2 = rep(sigma_d2, pops), theta = rep(theta, pops))
 
 ## Set parameters to monitor
-params7 <- c("K", "sigma_e2", "mu_r1", "gamma", "pred_r")
+params12 <- c("K", "sigma_e2", "mu_r1", "gamma", "pred_r")
 
 # Set MCMC parameters
 niter <- 200000
@@ -571,46 +571,46 @@ nchains <- 3
 
 start <- Sys.time()
 
-seed7 <- 559
-set.seed(seed7)
+seed12 <- 559
+set.seed(seed12)
 
-inits7 <- list(sample_inits7(), sample_inits7(), sample_inits7())
+inits12 <- list(sample_inits12(), sample_inits12(), sample_inits12())
 
-mod7 <- nimbleMCMC(code = predict_r_mult_nimble_fixed,
-                   constants = input_constants7,
-                   data = input_data7,
-                   inits = inits7,
-                   monitors = params7,
+mod12 <- nimbleMCMC(code = predict_r_mult_nimble_fixed,
+                   constants = input_constants12,
+                   data = input_data12,
+                   inits = inits12,
+                   monitors = params12,
                    niter = niter,
                    nburnin = nburnin,
                    thin = nthin,
                    nchains = nchains,
-                   setSeed = seed7,
+                   setSeed = seed12,
                    samplesAsCodaMCMC = TRUE)
-dur7 <- Sys.time() - start
+dur12 <- Sys.time() - start
 
 
 #--------------#
 # MLE model ####
 #--------------#
 
-mod8 <- purrr::map_dfc(.x = seq_len(pops),
-                       .f = ~{
+mod13 <- purrr::map_dfc(.x = seq_len(pops),
+                        .f = ~{
 
-                         mod <- thetalogistic.est(N = obs_N[.x,],
-                                                  year = 1:tmax,
-                                                  sd = sigma_d2,
-                                                  theta = theta,
-                                                  nboot = 1500)
+                          mod <- thetalogistic.est(N = obs_N[.x,],
+                                                   year = 1:tmax,
+                                                   sd = sigma_d2,
+                                                   theta = theta,
+                                                   nboot = 1500)
 
-                         tibble::tibble(
-                           !!paste0("sigma_e2", "[", .x, "]") := mod$boot.se,
-                           !!paste0("K", "[", .x, "]") := mod$boot.K,
-                           !!paste0("mu_r1", "[", .x, "]") := mod$boot.r1,
-                           !!paste0("gamma", "[", .x, "]") := mod$boot.gamma
-                         )
+                          tibble::tibble(
+                            !!paste0("sigma_e2", "[", .x, "]") := mod$boot.se,
+                            !!paste0("K", "[", .x, "]") := mod$boot.K,
+                            !!paste0("mu_r1", "[", .x, "]") := mod$boot.r1,
+                            !!paste0("gamma", "[", .x, "]") := mod$boot.gamma
+                          )
 
-                       })
+                        })
 
 #-----------------#
 # Plot outputs ####

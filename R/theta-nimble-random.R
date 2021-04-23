@@ -872,4 +872,5 @@ dur6 <- Sys.time() - start
 # Plot outputs ####
 #-----------------#
 
-plot_theta_mult(filename = "Approx-RE-MLE-outputs2")
+plot_theta_mult(filename = "Approx-RE-MLE-outputs2",
+                model_list = list("Approx" = mod3, "MLE" = mod4, "RE-r" = mod1, "RE-s" = mod2, "RE-r-hyp" = mod5, "RE-s-hyp" = mod6))
