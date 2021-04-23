@@ -231,7 +231,8 @@ sample_inits1 <- function(){
 
 input_data1 <- list(obs_N = obs_N)
 
-input_constants1 <- list(tmax = tmax, max_K = rep(K * 2, pops), max_N = apply(N, 1, max) * 2, sigma_d2 = rep(sigma_d2, pops))
+input_constants1 <- list(tmax = tmax, pops = pops, max_K = rep(K * 2, pops), max_N = apply(N, 1, max) * 2,
+                         sigma_d2 = rep(sigma_d2, pops))
 
 inits1 <- list(sample_inits1(), sample_inits1(), sample_inits1())
 
@@ -345,7 +346,8 @@ sample_inits2 <- function(){
 
 input_data2 <- list(obs_N = obs_N)
 
-input_constants2 <- list(tmax = tmax, max_K = rep(K * 2, pops), max_N = apply(N, 1, max) * 2, sigma_d2 = rep(sigma_d2, pops))
+input_constants2 <- list(tmax = tmax, pops = pops, max_K = rep(K * 2, pops), max_N = apply(N, 1, max) * 2,
+                         sigma_d2 = rep(sigma_d2, pops))
 
 params2 <- c("K", "theta", "sigma_e2", "gamma", "mu_r1", "N")
 
@@ -556,7 +558,7 @@ sample_inits3 <- function(){
 ## Set data and constants
 input_data3 <- list(N = obs_N, obs_r = obs_r)
 
-input_constants3 <- list(tmax = tmax, max_K = rep(K * 2, pops), sigma_d2 = rep(sigma_d2, pops))
+input_constants3 <- list(tmax = tmax, pops = pops, max_K = rep(K * 2, pops), sigma_d2 = rep(sigma_d2, pops))
 
 ## Set parameters to monitor
 params3 <- c("K", "theta", "sigma_e2", "mu_r1", "gamma", "pred_r")
@@ -705,7 +707,8 @@ sample_inits5 <- function(){
 
 input_data5 <- list(obs_N = obs_N)
 
-input_constants5 <- list(tmax = tmax, max_K = rep(K * 2, pops), max_N = apply(N, 1, max) * 2, sigma_d2 = rep(sigma_d2, pops))
+input_constants5 <- list(tmax = tmax, pops = pops, max_K = rep(K * 2, pops), max_N = apply(N, 1, max) * 2,
+                         sigma_d2 = rep(sigma_d2, pops))
 
 inits5 <- list(sample_inits5(), sample_inits5(), sample_inits5())
 
@@ -732,8 +735,141 @@ mod5 <- nimbleMCMC(code = predict_N_random_hyp,
                    samplesAsCodaMCMC = TRUE)
 dur5 <- Sys.time() - start
 
+
+#---------------------#
+# RE model s - hyp ####
+#---------------------#
+
+predict_N_random_unbiased_hyp <- nimbleCode({
+
+  #-----------------------------------#
+  # PROCESS MODEL (POPULATION GROWTH) #
+  #-----------------------------------#
+
+  for(i in 1:pops){
+    for(t in 1:(tmax-1)){
+
+      #log(N[t+1]) <- log(N[t]) + r0 * (1 - (N[t] / K)^theta) + eps_e[t] + eps_d[t]
+      log(N[i, t+1]) <- log(N[i, t]) + mu_r1[i] * (1 - (((N[i, t]^theta[i]) - 1) / ((K[i]^theta[i]) - 1))) - (sigma_e2[i] / 2) - (sigma_d2[i] / (2 * N[i, t])) + eps_e[i, t] + eps_d[i, t]
+
+      eps_e[i, t] ~ dnorm(0, var = sigma_e2[i])
+      eps_d[i, t] ~ dnorm(0, var = sigma_d2[i] / N[i, t])
+
+    }
+  }
+
+  #-------------------#
+  # OBSERVATION MODEL #
+  #-------------------#
+
+  for(i in 1:pops) {
+    for(t in 1:tmax) {
+
+      #obs_N[i, t] ~ dnorm(N[i, t], sd = 0.00001)
+      obs_N[i, t] ~ dpois(N[i, t])
+
+    }
+  }
+
+  #------------------------#
+  # PRIORS AND CONSTRAINTS #
+  #------------------------#
+
+  for(i in 1:pops) {
+
+    initial_N[i] ~ dunif(0, max_N[i])
+    N[i,1] <- initial_N[i]
+
+    # Priors for population parameters
+    mu_r1[i] <- mean_mu_r1 + epsilon_mu_r1[i]
+    epsilon_mu_r1[i] ~ dnorm(0, sd = sd_mu_r1)
+
+    log(sigma_e2[i]) <- log(mean_sigma_e2) + epsilon_sigma_e2[i]
+    epsilon_sigma_e2[i] ~ dnorm(0, sd = sd_sigma_e2)
+
+    K[i] ~ dunif(1, max_K[i])
+    theta[i] ~ dunif(-10, 10)
+
+  }
+
+  mean_mu_r1 ~ dunif(-5, 5)
+  sd_mu_r1 ~ dunif(0, 10)
+
+  mean_sigma_e2 ~ dunif(0, 10)
+  sd_sigma_e2 ~ dunif(0, 10)
+
+  #sigma_obs ~ dunif(0, 100)
+
+  #--------------------#
+  # DERIVED PARAMETERS #
+  #--------------------#
+
+  for(i in 1:pops) {
+
+    gamma[i] <- theta[i] * mu_r1[i] / (1 - K[i]^(-theta[i]))
+
+  }
+
+
+})
+
+sample_inits6 <- function(){
+
+  list(
+    #r0 = rnorm(1, 1, 0.5),
+    mean_mu_r1 = rnorm(1, 1, 0.5),
+    sd_mu_r1 = runif(1, 0, 1),
+    epsilon_mu_r1 = rep(0, pops),
+    mean_sigma_e2 = runif(1, 0, 1),
+    sd_sigma_e2 = runif(1, 0, 1),
+    epsilon_sigma_e2 = rep(0, pops),
+    theta = rnorm(pops, 2, 0.5),
+    K = rep(K, pops),
+    eps_e = matrix(0, pops, tmax-1),
+    eps_d = matrix(0, pops, tmax-1),
+    initial_N = obs_N[,1]#,
+    #sigma_obs = runif(1, 0, 10)
+  )
+
+}
+
+input_data6 <- list(obs_N = obs_N)
+
+input_constants6 <- list(tmax = tmax, pops = pops, max_K = rep(K * 2, pops), max_N = apply(N, 1, max) * 2,
+                         sigma_d2 = rep(sigma_d2, pops))
+
+params6 <- c("K", "theta", "mean_sigma_e2", "sd_sigma_e2", "sigma_e2", "gamma", "mean_mu_r1", "sd_mu_r1", "mu_r1", "N")
+
+# Set MCMC parameters
+niter <- 200000
+nburnin <- 150000
+nthin <- 100
+nchains <- 3
+
+# Model
+start <- Sys.time()
+
+seed6 <- 78
+set.seed(seed6)
+
+inits6 <- list(sample_inits6(), sample_inits6(), sample_inits6())
+
+mod6 <- nimbleMCMC(code = predict_N_random_unbiased_hyp,
+                   constants = input_constants6,
+                   data = input_data6,
+                   inits = inits6,
+                   monitors = params6,
+                   niter = niter,
+                   nburnin = nburnin,
+                   thin = nthin,
+                   nchains = nchains,
+                   setSeed = seed6,
+                   samplesAsCodaMCMC = TRUE)
+
+dur6 <- Sys.time() - start
+
 #-----------------#
 # Plot outputs ####
 #-----------------#
 
-plot_theta_mult(filename = "Approx-RE-MLE-outputs")
+plot_theta_mult(filename = "Approx-RE-MLE-outputs2")

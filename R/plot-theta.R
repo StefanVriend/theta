@@ -1,6 +1,8 @@
-plot_theta_mult <- function(filename, pars = c("sigma_e2", "K", "mu_r1", "theta", "gamma"),
+plot_theta_mult <- function(filename,
+                            pars = c("sigma_e2", "K", "mu_r1", "theta", "gamma"),
                             true = c(sigma_e2, K, mu_r1, theta, gamma)) {
   # filename: character. Name of plot file without extension.
+  # mods: list of model outputs.
   # pars: character. Parameters to plot.
   # true: numeric. True values of {pars}
 
@@ -75,11 +77,12 @@ plot_theta_mult <- function(filename, pars = c("sigma_e2", "K", "mu_r1", "theta"
                   labs(x = "N", y = bquote(log(N[t+1]~"/"~N[t])))
 
                 # Plots 3: Posterior distributions of parameters
-                model_names <- c("Approx", "MLE", "RE-r", "RE-s", "RE-r-hyp")
+                model_names <- c("Approx", "MLE", "RE-r", "RE-s", "RE-r-hyp", "RE-s-hyp")
+                cl <- c("#2c91a0", "#ff9f1c", "#B54057", "#99b12f", "#007a5e", "#40476d")
 
                 plot_posterior <- function(par, true) {
 
-                  post_data <- purrr::map2_dfr(.x = list(mod3, mod4, mod1, mod2, mod5),
+                  post_data <- purrr::map2_dfr(.x = list(mod3, mod4, mod1, mod2, mod5, mod6),
                                                .y = model_names,
                                                .f = ~{
 
@@ -98,8 +101,7 @@ plot_theta_mult <- function(filename, pars = c("sigma_e2", "K", "mu_r1", "theta"
                                      high = quantile(y, probs = 0.975, na.rm = TRUE),
                                      .groups = "drop")
 
-                  cl <- rev(c("#164850", "#B86B00", "#883041", "#54611a", "#007a5e")) # colors
-                  fl <- rev(c("#319eaf", "#ffb347", "#cf7789", "#c5d86d", "#5cffd9")) # fills
+                  cl <- rev(cl)
 
                   if(stringr::str_detect(par, "theta")) {
                     # MLE has no theta bootstrap info
@@ -114,19 +116,18 @@ plot_theta_mult <- function(filename, pars = c("sigma_e2", "K", "mu_r1", "theta"
                       dplyr::filter(group != "MLE") %>%
                       dplyr::mutate(group = forcats::fct_drop(group))
 
-                    cl <- rev(c("#164850", "#883041", "#54611a", "#007a5e"))
-                    fl <- rev(c("#319eaf", "#cf7789", "#c5d86d", "#5cffd9"))
+                    cl <- rev(c("#2c91a0", "#B54057", "#99b12f", "#007a5e", "#40476d"))
 
                   }
 
                   ggplot(data = post_data, aes(y = group, x = y)) +
                     geom_vline(xintercept = true, linetype = "dashed") +
-                    ggridges::geom_density_ridges(aes(fill = group), scale = 0.85, alpha = 0.5) +
+                    ggridges::geom_density_ridges(aes(fill = group, color = group), scale = 0.85, alpha = 0.5) +
                     geom_segment(aes(y = group, yend = group, x = low, xend = high, color = group), data = mean_data, size = 1) +
                     geom_point(aes(y = group, x = median, color = group), data = mean_data, size = 3) +
                     labs(x = par, y = "") +
                     scale_color_manual(values = cl) +
-                    scale_fill_manual(values = fl)
+                    scale_fill_manual(values = colorspace::lighten(cl, amount = 0.35))
 
                 }
 
@@ -137,7 +138,7 @@ plot_theta_mult <- function(filename, pars = c("sigma_e2", "K", "mu_r1", "theta"
                 # Plots 4: Trace plots of parameters
                 plot_trace <- function(par, cl) {
 
-                  trace_data <- purrr::map2_dfr(.x = list(mod3, mod4, mod1, mod2, mod5),
+                  trace_data <- purrr::map2_dfr(.x = list(mod3, mod4, mod1, mod2, mod5, mod6),
                                                 .y = model_names,
                                                 .f = ~{
 
@@ -164,7 +165,8 @@ plot_theta_mult <- function(filename, pars = c("sigma_e2", "K", "mu_r1", "theta"
                                                   }
 
                                                 }) %>%
-                    dplyr::mutate(group = forcats::fct_relevel(group, model_names))
+                    dplyr::mutate(group = forcats::fct_relevel(group, model_names),
+                                  gr_ch = forcats::fct_relevel(gr_ch, purrr::map(model_names, ~paste0(.x, "-", 1:3)) %>% unlist()))
 
 
                   ggplot(data = trace_data, aes(x = sample, y = y, color = gr_ch)) +
@@ -185,13 +187,16 @@ plot_theta_mult <- function(filename, pars = c("sigma_e2", "K", "mu_r1", "theta"
                                                   colorspace::lighten(cl[4], amount = 0.5),
                                                   colorspace::darken(cl[5], amount = 0.5),
                                                   cl[5],
-                                                  colorspace::lighten(cl[5], amount = 0.5))) +
+                                                  colorspace::lighten(cl[5], amount = 0.5),
+                                                  colorspace::darken(cl[6], amount = 0.5),
+                                                  cl[6],
+                                                  colorspace::lighten(cl[6], amount = 0.5))) +
                     theme(axis.title.y = element_text(margin = margin(t = 0, r = 30, b = 0, l = 0)))
 
                 }
 
                 p4 <- purrr::map(.x = paste0(pars, "[", .x, "]"),
-                                 .f = ~plot_trace(.x, cl = c("#2c91a0", "#ff9f1c", "#B54057", "#99b12f", "#007a5e")))
+                                 .f = ~plot_trace(.x, cl = cl))
 
                 # Title
                 title <- cowplot::ggdraw() +
@@ -212,7 +217,7 @@ plot_theta_mult <- function(filename, pars = c("sigma_e2", "K", "mu_r1", "theta"
                 ggsave(filename = paste0("temp-figures/temp", .x, ".pdf"),
                        device = cairo_pdf,
                        plot = ggplot2::last_plot(),
-                       width = 15, height = 11)
+                       width = 16, height = 12)
 
               })
 
