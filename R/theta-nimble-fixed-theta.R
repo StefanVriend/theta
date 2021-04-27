@@ -3,8 +3,8 @@
 library(tidyverse)
 library(nimble)
 library(viridis)
-# library(extrafont)
-# extrafont::loadfonts(device = "win")
+library(extrafont)
+extrafont::loadfonts()
 
 nimbleOptions(disallow_multivariate_argument_expressions = FALSE)
 
@@ -249,16 +249,16 @@ nchains <- 3
 # Model
 start <- Sys.time()
 mod10 <- nimbleMCMC(code = predict_N_random_fixed,
-                   constants = input_constants10,
-                   data = input_data10,
-                   inits = inits10,
-                   monitors = params10,
-                   niter = niter,
-                   nburnin = nburnin,
-                   thin = nthin,
-                   nchains = nchains,
-                   setSeed = seed,
-                   samplesAsCodaMCMC = TRUE)
+                    constants = input_constants10,
+                    data = input_data10,
+                    inits = inits10,
+                    monitors = params10,
+                    niter = niter,
+                    nburnin = nburnin,
+                    thin = nthin,
+                    nchains = nchains,
+                    setSeed = seed,
+                    samplesAsCodaMCMC = TRUE)
 dur10 <- Sys.time() - start
 
 
@@ -349,7 +349,7 @@ sample_inits11 <- function(){
 input_data11 <- list(obs_N = obs_N)
 
 input_constants11 <- list(tmax = tmax, pops = pops, max_K = rep(K * 2, pops), max_N = apply(N, 1, max) * 2,
-                         sigma_d2 = rep(sigma_d2, pops), theta = rep(theta, pops))
+                          sigma_d2 = rep(sigma_d2, pops), theta = rep(theta, pops))
 
 params11 <- c("K", "sigma_e2", "gamma", "mu_r1", "N")
 
@@ -577,16 +577,16 @@ set.seed(seed12)
 inits12 <- list(sample_inits12(), sample_inits12(), sample_inits12())
 
 mod12 <- nimbleMCMC(code = predict_r_mult_nimble_fixed,
-                   constants = input_constants12,
-                   data = input_data12,
-                   inits = inits12,
-                   monitors = params12,
-                   niter = niter,
-                   nburnin = nburnin,
-                   thin = nthin,
-                   nchains = nchains,
-                   setSeed = seed12,
-                   samplesAsCodaMCMC = TRUE)
+                    constants = input_constants12,
+                    data = input_data12,
+                    inits = inits12,
+                    monitors = params12,
+                    niter = niter,
+                    nburnin = nburnin,
+                    thin = nthin,
+                    nchains = nchains,
+                    setSeed = seed12,
+                    samplesAsCodaMCMC = TRUE)
 dur12 <- Sys.time() - start
 
 
@@ -612,8 +612,274 @@ mod13 <- purrr::map_dfc(.x = seq_len(pops),
 
                         })
 
+#---------------------#
+# RE model r - hyp ####
+#---------------------#
+
+predict_N_random_fixed_hyp <- nimbleCode({
+
+  #-----------------------------------#
+  # PROCESS MODEL (POPULATION GROWTH) #
+  #-----------------------------------#
+
+  for(i in 1:pops){
+    for(t in 1:(tmax-1)){
+
+      log(N[i, t+1]) <- log(N[i, t]) + mu_r1[i] * (1 - (((N[i, t]^theta[i]) - 1) / ((K[i]^theta[i]) - 1))) + eps_e[i, t] + eps_d[i, t]
+
+      eps_e[i, t] ~ dnorm(0, var = sigma_e2[i])
+      eps_d[i, t] ~ dnorm(0, var = sigma_d2[i] / N[i, t])
+
+    }
+  }
+
+  #-------------------#
+  # OBSERVATION MODEL #
+  #-------------------#
+
+  for(i in 1:pops) {
+    for(t in 1:tmax) {
+
+      #obs_N[i, t] ~ dnorm(N[i, t], sd = 0.00001)
+      obs_N[i, t] ~ dpois(N[i, t])
+
+    }
+  }
+
+  #------------------------#
+  # PRIORS AND CONSTRAINTS #
+  #------------------------#
+
+  for(i in 1:pops) {
+
+    initial_N[i] ~ dunif(0, max_N[i])
+    N[i,1] <- initial_N[i]
+
+    # Priors for population parameters
+    mu_r1[i] <- mean_mu_r1 + epsilon_mu_r1[i]
+    epsilon_mu_r1[i] ~ dnorm(0, sd = sd_mu_r1)
+
+    log(sigma_e2[i]) <- log(mean_sigma_e2) + epsilon_sigma_e2[i]
+    epsilon_sigma_e2[i] ~ dnorm(0, sd = sd_sigma_e2)
+
+    K[i] ~ dunif(1, max_K[i])
+    #theta[i] ~ dunif(-10, 10)
+
+  }
+
+  mean_mu_r1 ~ dunif(-5, 5)
+  sd_mu_r1 ~ dunif(0, 10)
+
+  mean_sigma_e2 ~ dunif(0, 10)
+  sd_sigma_e2 ~ dunif(0, 10)
+
+  #sigma_obs ~ dunif(0, 100)
+
+  #--------------------#
+  # DERIVED PARAMETERS #
+  #--------------------#
+
+  for(i in 1:pops) {
+
+    gamma[i] <- theta[i] * mu_r1[i] / (1 - K[i]^(-theta[i]))
+
+  }
+
+
+})
+
+sample_inits14 <- function(){
+
+  list(
+    #r0 = rnorm(1, 1, 0.5),
+    mean_mu_r1 = rnorm(1, 1, 0.5),
+    sd_mu_r1 = runif(1, 0, 1),
+    epsilon_mu_r1 = rep(0, pops),
+    mean_sigma_e2 = runif(1, 0, 1),
+    sd_sigma_e2 = runif(1, 0, 1),
+    epsilon_sigma_e2 = rep(0, pops),
+    #theta = rnorm(pops, 2, 0.5),
+    K = rep(K, pops),
+    eps_e = matrix(0, pops, tmax-1),
+    eps_d = matrix(0, pops, tmax-1),
+    initial_N = obs_N[,1]#,
+    #sigma_obs = runif(1, 0, 10)
+  )
+
+}
+
+input_data14 <- list(obs_N = obs_N)
+
+input_constants14 <- list(tmax = tmax, pops = pops, max_K = rep(K * 2, pops), max_N = apply(N, 1, max) * 2,
+                          sigma_d2 = rep(sigma_d2, pops), theta = rep(theta, pops))
+
+params14 <- c("K", "mean_sigma_e2", "sd_sigma_e2", "sigma_e2", "gamma", "mean_mu_r1", "sd_mu_r1", "mu_r1", "N")
+
+# Set MCMC parameters
+niter <- 200000
+nburnin <- 150000
+nthin <- 100
+nchains <- 3
+
+# Model
+start <- Sys.time()
+
+seed14 <- 774
+set.seed(seed14)
+
+inits14 <- list(sample_inits14(), sample_inits14(), sample_inits14())
+
+mod14 <- nimbleMCMC(code = predict_N_random_fixed_hyp,
+                    constants = input_constants14,
+                    data = input_data14,
+                    inits = inits14,
+                    monitors = params14,
+                    niter = niter,
+                    nburnin = nburnin,
+                    thin = nthin,
+                    nchains = nchains,
+                    setSeed = seed14,
+                    samplesAsCodaMCMC = TRUE)
+dur14 <- Sys.time() - start
+
+
+#---------------------#
+# RE model s - hyp ####
+#---------------------#
+
+predict_N_random_unbiased_fixed_hyp <- nimbleCode({
+
+  #-----------------------------------#
+  # PROCESS MODEL (POPULATION GROWTH) #
+  #-----------------------------------#
+
+  for(i in 1:pops){
+    for(t in 1:(tmax-1)){
+
+      #log(N[t+1]) <- log(N[t]) + r0 * (1 - (N[t] / K)^theta) + eps_e[t] + eps_d[t]
+      log(N[i, t+1]) <- log(N[i, t]) + mu_r1[i] * (1 - (((N[i, t]^theta[i]) - 1) / ((K[i]^theta[i]) - 1))) - (sigma_e2[i] / 2) - (sigma_d2[i] / (2 * N[i, t])) + eps_e[i, t] + eps_d[i, t]
+
+      eps_e[i, t] ~ dnorm(0, var = sigma_e2[i])
+      eps_d[i, t] ~ dnorm(0, var = sigma_d2[i] / N[i, t])
+
+    }
+  }
+
+  #-------------------#
+  # OBSERVATION MODEL #
+  #-------------------#
+
+  for(i in 1:pops) {
+    for(t in 1:tmax) {
+
+      #obs_N[i, t] ~ dnorm(N[i, t], sd = 0.00001)
+      obs_N[i, t] ~ dpois(N[i, t])
+
+    }
+  }
+
+  #------------------------#
+  # PRIORS AND CONSTRAINTS #
+  #------------------------#
+
+  for(i in 1:pops) {
+
+    initial_N[i] ~ dunif(0, max_N[i])
+    N[i,1] <- initial_N[i]
+
+    # Priors for population parameters
+    mu_r1[i] <- mean_mu_r1 + epsilon_mu_r1[i]
+    epsilon_mu_r1[i] ~ dnorm(0, sd = sd_mu_r1)
+
+    log(sigma_e2[i]) <- log(mean_sigma_e2) + epsilon_sigma_e2[i]
+    epsilon_sigma_e2[i] ~ dnorm(0, sd = sd_sigma_e2)
+
+    K[i] ~ dunif(1, max_K[i])
+    #theta[i] ~ dunif(-10, 10)
+
+  }
+
+  mean_mu_r1 ~ dunif(-5, 5)
+  sd_mu_r1 ~ dunif(0, 10)
+
+  mean_sigma_e2 ~ dunif(0, 10)
+  sd_sigma_e2 ~ dunif(0, 10)
+
+  #sigma_obs ~ dunif(0, 100)
+
+  #--------------------#
+  # DERIVED PARAMETERS #
+  #--------------------#
+
+  for(i in 1:pops) {
+
+    gamma[i] <- theta[i] * mu_r1[i] / (1 - K[i]^(-theta[i]))
+
+  }
+
+
+})
+
+sample_inits15 <- function(){
+
+  list(
+    #r0 = rnorm(1, 1, 0.5),
+    mean_mu_r1 = rnorm(1, 1, 0.5),
+    sd_mu_r1 = runif(1, 0, 1),
+    epsilon_mu_r1 = rep(0, pops),
+    mean_sigma_e2 = runif(1, 0, 1),
+    sd_sigma_e2 = runif(1, 0, 1),
+    epsilon_sigma_e2 = rep(0, pops),
+    #theta = rnorm(pops, 2, 0.5),
+    K = rep(K, pops),
+    eps_e = matrix(0, pops, tmax-1),
+    eps_d = matrix(0, pops, tmax-1),
+    initial_N = obs_N[,1]#,
+    #sigma_obs = runif(1, 0, 10)
+  )
+
+}
+
+input_data15 <- list(obs_N = obs_N)
+
+input_constants15 <- list(tmax = tmax, pops = pops, max_K = rep(K * 2, pops), max_N = apply(N, 1, max) * 2,
+                          sigma_d2 = rep(sigma_d2, pops), theta = rep(theta, pops))
+
+params15 <- c("K", "mean_sigma_e2", "sd_sigma_e2", "sigma_e2", "gamma", "mean_mu_r1", "sd_mu_r1", "mu_r1", "N")
+
+# Set MCMC parameters
+niter <- 200000
+nburnin <- 150000
+nthin <- 100
+nchains <- 3
+
+# Model
+start <- Sys.time()
+
+seed15 <- 931
+set.seed(seed15)
+
+inits15 <- list(sample_inits15(), sample_inits15(), sample_inits15())
+
+mod15 <- nimbleMCMC(code = predict_N_random_unbiased_fixed_hyp,
+                    constants = input_constants15,
+                    data = input_data15,
+                    inits = inits15,
+                    monitors = params15,
+                    niter = niter,
+                    nburnin = nburnin,
+                    thin = nthin,
+                    nchains = nchains,
+                    setSeed = seed15,
+                    samplesAsCodaMCMC = TRUE)
+
+dur15 <- Sys.time() - start
+
 #-----------------#
 # Plot outputs ####
 #-----------------#
 
-plot_theta_mult(filename = "Approx-RE-MLE-fixed-theta", pars = c("sigma_e2", "K", "mu_r1", "gamma"), true = c(sigma_e2, K, mu_r1, gamma))
+plot_theta_mult(filename = "Approx-RE-MLE-fixed-theta",
+                model_list = list("Approx" = mod12, "MLE" = mod13, "RE-r" = mod10, "RE-s" = mod11,
+                                  "RE-r-hyp" = mod14, "RE-s-hyp" = mod15),
+                pars = c("sigma_e2", "K", "mu_r1", "gamma"), true = c(sigma_e2, K, mu_r1, gamma))

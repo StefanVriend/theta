@@ -1,8 +1,8 @@
 library(tidyverse)
 library(nimble)
 library(viridis)
-# library(extrafont)
-# extrafont::loadfonts(device = "win")
+library(extrafont)
+extrafont::loadfonts()
 
 nimbleOptions(disallow_multivariate_argument_expressions = FALSE)
 
@@ -246,6 +246,10 @@ nchains <- 3
 
 # Model
 start <- Sys.time()
+
+seed1 <- 51
+set.seed(seed1)
+
 mod1 <- nimbleMCMC(code = predict_N_random,
                    constants = input_constants1,
                    data = input_data1,
@@ -255,7 +259,7 @@ mod1 <- nimbleMCMC(code = predict_N_random,
                    nburnin = nburnin,
                    thin = nthin,
                    nchains = nchains,
-                   setSeed = seed,
+                   setSeed = seed1,
                    samplesAsCodaMCMC = TRUE)
 dur1 <- Sys.time() - start
 
@@ -358,9 +362,9 @@ nthin <- 100
 nchains <- 3
 
 # Model
-#start <- Sys.time()
+# start <- Sys.time()
 #
-# seed2 <- 31
+# seed2 <- 32
 # set.seed(seed2)
 #
 # inits2 <- list(sample_inits2(), sample_inits2(), sample_inits2())
@@ -383,7 +387,7 @@ nchains <- 3
 start <- Sys.time()
 nchains <- 1
 
-seed2a <- 32
+seed2a <- 34
 set.seed(seed2a)
 
 inits2a <- list(sample_inits2())
@@ -710,8 +714,6 @@ input_data5 <- list(obs_N = obs_N)
 input_constants5 <- list(tmax = tmax, pops = pops, max_K = rep(K * 2, pops), max_N = apply(N, 1, max) * 2,
                          sigma_d2 = rep(sigma_d2, pops))
 
-inits5 <- list(sample_inits5(), sample_inits5(), sample_inits5())
-
 params5 <- c("K", "theta", "mean_sigma_e2", "sd_sigma_e2", "sigma_e2", "gamma", "mean_mu_r1", "sd_mu_r1", "mu_r1", "N")
 
 # Set MCMC parameters
@@ -722,6 +724,12 @@ nchains <- 3
 
 # Model
 start <- Sys.time()
+
+seed5 <- 403
+set.seed(seed5)
+
+inits5 <- list(sample_inits5(), sample_inits5(), sample_inits5())
+
 mod5 <- nimbleMCMC(code = predict_N_random_hyp,
                    constants = input_constants5,
                    data = input_data5,
@@ -731,8 +739,9 @@ mod5 <- nimbleMCMC(code = predict_N_random_hyp,
                    nburnin = nburnin,
                    thin = nthin,
                    nchains = nchains,
-                   setSeed = seed,
+                   setSeed = seed5,
                    samplesAsCodaMCMC = TRUE)
+
 dur5 <- Sys.time() - start
 
 
@@ -873,4 +882,5 @@ dur6 <- Sys.time() - start
 #-----------------#
 
 plot_theta_mult(filename = "Approx-RE-MLE-outputs2",
-                model_list = list("Approx" = mod3, "MLE" = mod4, "RE-r" = mod1, "RE-s" = mod2, "RE-r-hyp" = mod5, "RE-s-hyp" = mod6))
+                model_list = list("Approx" = mod3, "MLE" = mod4, "RE-r" = mod1, "RE-s" = mod2,
+                                  "RE-r-hyp" = mod5, "RE-s-hyp" = mod6))

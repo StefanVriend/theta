@@ -1,8 +1,9 @@
 plot_theta_mult <- function(filename,
+                            model_list,
                             pars = c("sigma_e2", "K", "mu_r1", "theta", "gamma"),
                             true = c(sigma_e2, K, mu_r1, theta, gamma)) {
   # filename: character. Name of plot file without extension.
-  # mods: list of model outputs.
+  # model_list: named list of models.
   # pars: character. Parameters to plot.
   # true: numeric. True values of {pars}
 
@@ -10,13 +11,28 @@ plot_theta_mult <- function(filename,
   # NB: ggsave + cairo_pdf do not allow multi-page pdfs
   dir.create("temp-figures")
 
-  #pb <- progress::progress_bar$new(total = pops, format = "Plotting [:bar] :percent ETA: :eta")
+  # Table of possible models
+  model_markers <- tibble::tibble(
+    model_name = c("Approx", "MLE", "RE-r", "RE-s", "RE-r-hyp", "RE-s-hyp"),
+    model_col = c("#2c91a0", "#ff9f1c", "#B54057", "#99b12f", "#007a5e", "#40476d")
+  )
+
+  # Select names and colors
+  models <- model_markers %>%
+    dplyr::filter(model_name %in% names(model_list))
+
+  model_names <- models %>% dplyr::pull(model_name)
+  cl <- models %>% dplyr::pull(model_col)
+  trace_cl <- purrr::map(.x = cl,
+                         .f = ~{c(colorspace::darken(.x, amount = 0.5), .x,
+                                  colorspace::lighten(.x, amount = 0.5))}
+  ) %>%
+    unlist()
 
   # Create pdfs
   purrr::walk(.x = seq_len(pops),
               .f = ~{
 
-                #pb$tick()
                 cat(paste0("Population: ", .x, "\n"))
 
                 data <- tibble::tibble(
@@ -77,12 +93,9 @@ plot_theta_mult <- function(filename,
                   labs(x = "N", y = bquote(log(N[t+1]~"/"~N[t])))
 
                 # Plots 3: Posterior distributions of parameters
-                model_names <- c("Approx", "MLE", "RE-r", "RE-s", "RE-r-hyp", "RE-s-hyp")
-                cl <- c("#2c91a0", "#ff9f1c", "#B54057", "#99b12f", "#007a5e", "#40476d")
-
                 plot_posterior <- function(par, true) {
 
-                  post_data <- purrr::map2_dfr(.x = list(mod3, mod4, mod1, mod2, mod5, mod6),
+                  post_data <- purrr::map2_dfr(.x = model_list,
                                                .y = model_names,
                                                .f = ~{
 
@@ -101,12 +114,12 @@ plot_theta_mult <- function(filename,
                                      high = quantile(y, probs = 0.975, na.rm = TRUE),
                                      .groups = "drop")
 
-                  cl <- rev(cl)
-
                   if(stringr::str_detect(par, "theta")) {
                     # MLE has no theta bootstrap info
 
-                    model_names <- c("Approx", "RE-r", "RE-s", "RE-r-hyp")
+                    mle <- which(model_names == "MLE")
+                    model_names <- model_names[-mle]
+                    cl <- cl[-mle]
 
                     post_data <- post_data %>%
                       dplyr::filter(group != "MLE") %>%
@@ -116,8 +129,6 @@ plot_theta_mult <- function(filename,
                       dplyr::filter(group != "MLE") %>%
                       dplyr::mutate(group = forcats::fct_drop(group))
 
-                    cl <- rev(c("#2c91a0", "#B54057", "#99b12f", "#007a5e", "#40476d"))
-
                   }
 
                   ggplot(data = post_data, aes(y = group, x = y)) +
@@ -126,8 +137,8 @@ plot_theta_mult <- function(filename,
                     geom_segment(aes(y = group, yend = group, x = low, xend = high, color = group), data = mean_data, size = 1) +
                     geom_point(aes(y = group, x = median, color = group), data = mean_data, size = 3) +
                     labs(x = par, y = "") +
-                    scale_color_manual(values = cl) +
-                    scale_fill_manual(values = colorspace::lighten(cl, amount = 0.35))
+                    scale_color_manual(values = rev(cl)) +
+                    scale_fill_manual(values = colorspace::lighten(rev(cl), amount = 0.35))
 
                 }
 
@@ -136,9 +147,9 @@ plot_theta_mult <- function(filename,
                                   .f = ~plot_posterior(.x, .y))
 
                 # Plots 4: Trace plots of parameters
-                plot_trace <- function(par, cl) {
+                plot_trace <- function(par) {
 
-                  trace_data <- purrr::map2_dfr(.x = list(mod3, mod4, mod1, mod2, mod5, mod6),
+                  trace_data <- purrr::map2_dfr(.x = model_list,
                                                 .y = model_names,
                                                 .f = ~{
 
@@ -173,30 +184,13 @@ plot_theta_mult <- function(filename,
                     geom_line(size = 1/3, alpha = 0.8) +
                     facet_wrap(~group, ncol = length(model_names)) +
                     labs(x = "", y = par) +
-                    scale_color_manual(values = c(colorspace::darken(cl[1], amount = 0.5),
-                                                  cl[1],
-                                                  colorspace::lighten(cl[1], amount = 0.5),
-                                                  colorspace::darken(cl[2], amount = 0.5),
-                                                  cl[2],
-                                                  colorspace::lighten(cl[2], amount = 0.5),
-                                                  colorspace::darken(cl[3], amount = 0.5),
-                                                  cl[3],
-                                                  colorspace::lighten(cl[3], amount = 0.5),
-                                                  colorspace::darken(cl[4], amount = 0.5),
-                                                  cl[4],
-                                                  colorspace::lighten(cl[4], amount = 0.5),
-                                                  colorspace::darken(cl[5], amount = 0.5),
-                                                  cl[5],
-                                                  colorspace::lighten(cl[5], amount = 0.5),
-                                                  colorspace::darken(cl[6], amount = 0.5),
-                                                  cl[6],
-                                                  colorspace::lighten(cl[6], amount = 0.5))) +
+                    scale_color_manual(values = trace_cl) +
                     theme(axis.title.y = element_text(margin = margin(t = 0, r = 30, b = 0, l = 0)))
 
                 }
 
                 p4 <- purrr::map(.x = paste0(pars, "[", .x, "]"),
-                                 .f = ~plot_trace(.x, cl = cl))
+                                 .f = ~plot_trace(.x))
 
                 # Title
                 title <- cowplot::ggdraw() +
