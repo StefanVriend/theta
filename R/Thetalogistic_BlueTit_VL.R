@@ -877,7 +877,7 @@ stasj.logismod <- function(x){
 		nedre <- 0
 	}
 	simN <- simTS(N0=K, nrYear=100, nrSeries=1000, delta=0.01, r=r, K=K, sigE2=sigE2, sigD2=sigD2)
-	par(mfrow=c(2,1))
+	par(mfrow=c(3,1))
 	hist(simN[-(1:10),],prob=T, xlim=c(0,max(na.omit(simN))*1.1), nclass=100, main="Kontinuerlig")
 # quasi-stasj fordeling diff approx
 	qs <- QuasiStasj(to=K*2, lower=nedre, X0=X0, r=r, K=K, sigE2=sigE2, sigD2=sigD2)
