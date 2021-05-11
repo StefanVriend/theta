@@ -309,6 +309,7 @@ run_population_model <- function(X, sigma_d2, n_boot = NULL, n_time = length(X),
   names(sigma_e2) <- "sigma_e2" # Set name to sigma_e2 (instead of log_sigma_e2)
   r <- estimates$par[2] # Estimate for r
   beta <- estimates$par[3] # Estimate for beta
+  K <- -r / beta
   LL <- estimates$value # Log-likelihood
   N <- exp(X) # Population size on the arithmetic scale
   pred <- c(NA, X + r - (sigma_e2 / 2) - (sigma_d2 / (2 * N)) + beta * N) # Predicted values
@@ -321,31 +322,208 @@ run_population_model <- function(X, sigma_d2, n_boot = NULL, n_time = length(X),
 
   ic <- calculate_criteria(X, estimates) # Calculate information criteria
 
-  return(list(estimates = estimates, sigma_e2 = sigma_e2, r = r, beta = beta, X = X, N = N, sigma_d2 = sigma_d2,
+  return(list(estimates = estimates, sigma_e2 = sigma_e2, r = r, beta = beta, K = K,
+              X = X, N = N, sigma_d2 = sigma_d2,
               pred = pred, res = res, dem_comp = dem_comp, boot = boot, LL = LL,
               AIC = ic$AIC, AICc = ic$AICc, BIC = ic$BIC))
 
 }
 
-## Test run
+#--------------------------#
+# NOTE: UNDER CONSTRUCTION #
+#--------------------------#
+
+# Stationary distribution
+stat_dist_logis <- function(mod, init_X, n_rep, n_time) {
+  # mod: output from `run_population_model()`
+  # init_X: initial value for X.
+  # n_rep: number of replicates
+  # n_time: number of time steps to simulate for
+
+  if(missing(init_X)) {
+
+    init_X <- log(-mod$r / mod$beta) # Initial value of simulation at K
+
+  }
+
+  # Output from `estimate_pars()`
+  est <- mod$estimates
+
+  # Simulate data
+  sim_data <- matrix(NA, nrow = n_rep, ncol = n_time)
+
+  pb_rep <- progress::progress_bar$new(total = n_rep,
+                                       format = "Simulating data [:bar] :percent eta: :eta")
+
+  for(i in 1:n_rep) {
+
+    pb_rep$tick() # Update progress bar
+
+    log_sim <- simulate_ts(X = mod$X, init_X = init_X, sigma_d2 = mod$sigma_d2,
+                           est = est, dd = "logistic", n_time = n_time) # Simulate time series
+
+    sim_data[i,] <- exp(log_sim)
+
+  }
+
+  # Mean and variance over simulated time series (first 10% of TS excluded)
+  mean_stat_dist <- apply(sim_data[, -seq_len(n_time / 10)], 1, mean)
+  var_stat_dist <- apply(sim_data[, -seq_len(n_time / 10)], 1, var)
+
+  return(list(sim = sim_data[, -seq_len(n_time / 10)],
+              mean_stat_dist = mean_stat_dist,
+              var_stat_dist = var_stat_dist))
+
+}
+
+# Quasi-stationary distribution
+quasi_stat_dist_logis <- function(mod, from = 1, to, n, lower = 0, upper) {
+  # mod: output from `run_population_model()`
+  # from: lower bound population size (Default: 1)
+  # to: upper bound population size (Default: 2K)
+  # n: number of population sizes
+  # lower: lower limit of integration in Green function (Default: 0)
+  # upper: upper limit of integration in Green function (Default: K)
+
+  Green_function <- function(x, lower, upper, r, K, sigma_e2, sigma_d2) {
+    # x: population size (arithmetic scale)
+    # lower: lower limit of integration in Green function
+    # upper: upper limit of integration in Green function
+
+    m <- function(n, r, K) {r * n-(r/K) * n^2} # Infinitesimal mean
+    v <- function(n, sigma_e2, sigma_d2) {sigma_e2 * n^2 + sigma_d2 * n} # Infinitesimal variance
+
+    sv <- function(x) {m(x, r, K) / v(x, sigma_e2, sigma_d2)}
+    mx <- function(x) {1/(v(x, sigma_e2 = sigma_e2, sigma_d2 = sigma_d2) * s(x))}
+
+    s <- Vectorize(function(y) {exp(-2 * integrate(sv, lower = lower, upper = y, subdivisions = 100)$value)})
+    S <- function(x) {integrate(s, lower = lower, upper = x)$value}
+
+    ifelse(x<=upper, 2*mx(x)*S(x), 2*mx(x)*S(upper))
+
+  }
+
+  # Retrieve estimates from `run_population_model()`
+  K <- -mod$r / mod$beta
+  r <- mod$r
+  sigma_e2 <- mod$sigma_e2
+  sigma_d2 <- mod$sigma_d2
+
+  # Vector of population sizes
+  if(missing(to)) {
+
+    to <- K * 2
+
+  }
+
+  vec <- seq(from = from, to = to, length.out = n)
+
+  # Vector of probabilities
+  res <- NA
+
+  lower <- ifelse(sigma_d2 <= 0.01, 1, 0)
+
+  if(missing(upper)) {
+
+    upper <- K
+
+  }
+
+  for(i in 1:length(vec)) {
+
+    res[i] <- Green_function(vec[i], lower, upper, r, K, sigma_e2, sigma_d2)
+
+  }
+
+  res <- res / (sum(res)) / diff(vec[1:2])
+
+  tibble::tibble(
+    N = vec,
+    Pr = res
+  )
+
+}
+
+# Test run ####
+library(tidyverse)
+#extrafont::loadfonts(device = "win")
+
+# Source "original" script
+source(here::here("R", "Thetalogistic_BlueTit_VL.R"))
+
 # Simulate data
 data <- simulate_data(log(10), sigma_e2 = 0.02, sigma_d2 = 0.3, r = 0.6, beta = -0.005, tmax = 50, seed = 18)
 
-# Run logistic model
+# Run logistic models
 logis <- run_population_model(data$X, data$sigma_d2, n_boot = 1000)
-logis2 <- logismodfit(x = exp(data$X), sd = data$sigma_d2, nboot = 1000) # Model from Vidar's script
+logis2 <- logismodfit(x = exp(data$X), sd = data$sigma_d2, nboot = 1000) # From Thetalogistic_BlueTit_VL.R
 
-# Compare model fits
-# Asses model fit
-par(mfrow=c(4, 2))
-plot(density(logis$boot$boot[, "r"])); abline(v = data$r)
-plot(density(logis2$boot[, "r"])); abline(v = data$r)
+# Compare my code and Vidar's code
+mod_outputs <- tibble::tibble(
+  val = c(logis$boot$boot[, "r"], logis$boot$boot[, "sigma_e2"], logis$boot$boot[, "beta"], logis$boot$boot[, "K"],
+          logis2$boot[, "r"] + (logis2$boot[, "sig2"] * 0.5), logis2$boot[, "sig2"],
+          -logis2$boot[, "r"] / logis2$boot[, "K"], logis2$boot[, "K"]),
+  par = rep(rep(c("r", "sigma_e2", "beta", "K"), each = 1000), 2),
+  mod = rep(c("New", "Original"), each = 4000)
+)
 
-plot(density(logis$boot$boot[, "sigma_e2"])); abline(v = data$sigma_e2)
-plot(density(logis2$boot[, "sig2"])); abline(v = data$sigma_e2)
+pl <- purrr::map(.x = c("r", "sigma_e2", "beta", "K"),
+                 .f = ~{
 
-plot(density(logis$boot$boot[, "beta"])); abline(v = data$beta)
-plot(density(-logis2$boot[, "r"] / logis2$boot[, "K"])); abline(v = data$beta)
+                   # Filter data for selected parameter
+                   plot_data <- mod_outputs %>%
+                     dplyr::filter(par == .x)
 
-plot(density(logis$boot$boot[, "K"])); abline(v = -data$r / data$beta)
-plot(density(logis2$boot[, "K"])); abline(v = -data$r / data$beta)
+                   # True value for selected parameter
+                   true <- data[[.x]]
+
+                   if(.x == "K") {
+
+                     true <- -data$r / data$beta
+
+                   }
+
+                   # Plot
+                   ggplot(plot_data, aes(x = val, y = mod, fill = mod, color = mod)) +
+                     geom_vline(xintercept = true, linetype = "dashed") +
+                     ggridges::geom_density_ridges(scale = 0.85, alpha = 0.5) +
+                     theme_classic(base_family = "Signika") +
+                     labs(x = .x, y = "Model") +
+                     scale_color_manual(values = c("#2c91a0", "#de6e4b")) +
+                     scale_fill_manual(values = c("#2c91a0", "#de6e4b")) +
+                     theme(axis.text = element_text(size = 11, color = "black"),
+                           axis.title = element_text(size = 12, color = "black"),
+                           plot.margin = margin(l = 5, b = 5, t = 10, r = 15),
+                           legend.position = "none")
+
+           })
+
+cowplot::plot_grid(plotlist = pl) %>%
+  cowplot::save_plot(filename = here::here("inst", "images", "Logis-outputs.pdf"),
+                     device = cairo_pdf,
+                     plot = .,
+                     nrow = 2,
+                     ncol = 2,
+                     base_asp = 1.4)
+
+
+#--------------------------#
+# NOTE: UNDER CONSTRUCTION #
+#--------------------------#
+
+# Stationary distribution via simulation
+stat_dist <- stat_dist_logis(logis, n_rep = 100, n_time = 10000)
+qs <- quasi_stat_dist_logis(logis, n = 100)
+
+# Compare my code and original code
+# Input needed for original version of the stationary distribution
+x <- list(s = logis$r - logis$sigma_e2 * 0.5,
+          sig2 = logis$sigma_e2,
+          sigd = logis$sigma_d2,
+          K = -logis$r / logis$beta)
+
+stasj.logismod(x) # From Thetalogistic_BlueTit_VL.R
+
+hist(stat_dist$sim, prob = TRUE, ylim = c(0, max(qs$Pr) * 1.1), xlim = c(min(qs$N), 252),
+     main = "Title", nclass = 30)
+lines(qs$N, qs$Pr, col = "red")
