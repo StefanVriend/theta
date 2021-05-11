@@ -92,24 +92,24 @@ for(i in 1:pops) {
 # Observed N
 # Draw from Poisson model
 
-# obs_N <- matrix(NA, nrow = pops, ncol = tmax)
-#
-# for(i in 1:pops){
-#
-#     obs_N[i,] <- rpois(tmax, N[i,])
-#
-# }
+obs_N <- matrix(NA, nrow = pops, ncol = tmax)
 
-obs_N <- N
+for(i in 1:pops){
+
+    obs_N[i,] <- rpois(tmax, N[i,])
+
+}
+
+# obs_N <- N
 
 # Plot N
 cl <- viridis(pops)
 
-plot(N[1,], type = "l", xlab = "Time", ylab = "N", col = adjustcolor(cl[1], alpha.f = 0.6))
+plot(obs_N[1,], type = "l", xlab = "Time", ylab = "N", col = adjustcolor(cl[1], alpha.f = 0.6))
 
 for(r in 2:nrow(N)) {
 
-  lines(N[r,], type = "l", col = adjustcolor(cl[r], alpha.f = 0.6))
+  lines(obs_N[r,], type = "l", col = adjustcolor(cl[r], alpha.f = 0.6))
 
 }
 
@@ -565,7 +565,7 @@ input_data3 <- list(N = obs_N, obs_r = obs_r)
 input_constants3 <- list(tmax = tmax, pops = pops, max_K = rep(K * 2, pops), sigma_d2 = rep(sigma_d2, pops))
 
 ## Set parameters to monitor
-params3 <- c("K", "theta", "sigma_e2", "mu_r1", "gamma", "pred_r")
+params3 <- c("K", "theta", "sigma_e2", "mu_r1", "gamma")
 
 # Set MCMC parameters
 niter <- 200000
@@ -877,6 +877,269 @@ mod6 <- nimbleMCMC(code = predict_N_random_unbiased_hyp,
 
 dur6 <- Sys.time() - start
 
+#--------------#
+# X model s ####
+#--------------#
+
+predict_X <- nimbleCode({
+
+  #-----------------------------------#
+  # PROCESS MODEL (POPULATION GROWTH) #
+  #-----------------------------------#
+
+  for(i in 1:pops){
+    for(t in 1:(tmax-1)){
+
+      N[i, t+1] <- exp(X[i, t+1])
+
+      EX[i, t+1] <- X[i, t] + mu_r1[i] * (1 - (((N[i, t]^theta[i]) - 1) / ((K[i]^theta[i]) - 1))) - (sigma_e2[i] / 2) - (sigma_d2[i] / (2 * N[i, t]))
+
+      X[i, t+1] ~ dnorm(EX[i, t+1], var = sigma_e2[i] + sigma_d2[i] / N[i, t])
+
+      # eps now becomes a derived parameter
+      # I keep it here instead of in "derived parameter section" because
+      # we later may want to fit a distribution to epsilons (but how to do that
+      # without making eps an parameter???)
+      # eps[i,t+1] or eps[i, t] is a matter of preference / definition -
+      # but important to be aware of / remember the indexing
+      eps[i, t] <- X[i, t+1] - EX[i, t+1]
+      demcomp[i, t] <- sigma_d2[i] / N[i, t]
+
+      # eps_e[i, t] ~ dnorm(0, var = sigma_e2[i])
+      # eps_d[i, t] ~ dnorm(0, var = sigma_d2[i] / N[i, t])
+
+    }
+  }
+
+  #-------------------#
+  # OBSERVATION MODEL #
+  #-------------------#
+
+  for(i in 1:pops) {
+    for(t in 1:tmax) {
+
+      #obs_N[i, t] ~ dnorm(N[i, t], sd = 0.00001)
+      obs_N[i, t] ~ dpois(N[i, t])
+
+    }
+  }
+
+  #------------------------#
+  # PRIORS AND CONSTRAINTS #
+  #------------------------#
+
+  for(i in 1:pops) {
+
+    # initial_N[i] ~ dunif(0, max_N[i])
+    # N[i,1] <- initial_N[i]
+
+    X[i, 1] ~ dunif(0, max_X[i])
+    N[i, 1] <- exp(X[i, 1])
+
+    r0[i] ~ dunif(0, 5)
+    sigma_e2[i] ~ dunif(0, 10)
+    K[i] ~ dunif(10, max_K[i])
+    theta[i] ~ dunif(-10, 10)
+
+  }
+
+
+
+  #sigma_obs ~ dunif(0, 100)
+
+  #--------------------#
+  # DERIVED PARAMETERS #
+  #--------------------#
+
+  for(i in 1:pops) {
+
+    mu_r1[i] <- r0[i] / (1 - K[i]^(-theta[i]))
+    gamma[i] <- theta[i] * mu_r1[i] / (1 - K[i]^(-theta[i]))
+
+  }
+
+
+})
+
+sample_inits7 <- function(){
+
+  list(
+    r0 = rnorm(pops, 1, 0.5),
+    sigma_e2  = runif(pops, 0, 1),
+    theta = rnorm(pops, 2, 0.5),
+    K = rep(K, pops),
+    X = log(obs_N)
+  )
+
+}
+
+input_data7 <- list(obs_N = obs_N)
+
+input_constants7 <- list(tmax = tmax, pops = pops, max_K = rep(K * 2, pops), max_X = apply(obs_N, 1, max) * 2,
+                         sigma_d2 = rep(sigma_d2, pops))
+
+inits7 <- list(sample_inits7(), sample_inits7(), sample_inits7())
+
+params7 <- c("K", "theta", "sigma_e2", "gamma", "mu_r1", "r0")
+
+# Set MCMC parameters
+niter <- 200000
+nburnin <- 150000
+nthin <- 100
+nchains <- 3
+
+# Model
+start <- Sys.time()
+
+seed7 <- 191
+set.seed(seed7)
+
+mod7 <- nimbleMCMC(code = predict_X,
+                   constants = input_constants7,
+                   data = input_data7,
+                   inits = inits7,
+                   monitors = params7,
+                   niter = niter,
+                   nburnin = nburnin,
+                   thin = nthin,
+                   nchains = nchains,
+                   setSeed = seed7,
+                   samplesAsCodaMCMC = TRUE)
+dur7 <- Sys.time() - start
+
+
+#--------------------#
+# X model s - eps ####
+#--------------------#
+
+predict_X_random <- nimbleCode({
+
+  #-----------------------------------#
+  # PROCESS MODEL (POPULATION GROWTH) #
+  #-----------------------------------#
+
+  for(i in 1:pops){
+    for(t in 1:(tmax-1)){
+
+      N[i, t+1] <- exp(X[i, t+1])
+
+      X[i, t+1] <- X[i, t] + mu_r1[i] * (1 - (((N[i, t]^theta[i]) - 1) / ((K[i]^theta[i]) - 1))) - (sigma_e2[i] / 2) - (sigma_d2[i] / (2 * N[i, t])) + eps[i, t]
+
+      eps[i, t] ~ dnorm(0, var = sigma_e2[i] + sigma_d2[i] / N[i, t])
+
+      # eps now becomes a derived parameter
+      # I keep it here instead of in "derived parameter section" because
+      # we later may want to fit a distribution to epsilons (but how to do that
+      # without making eps an parameter???)
+      # eps[i,t+1] or eps[i, t] is a matter of preference / definition -
+      # but important to be aware of / remember the indexing
+      #eps[i, t] <- X[i, t+1] - EX[i, t+1]
+      demcomp[i, t] <- sigma_d2[i] / N[i, t]
+
+      # eps_e[i, t] ~ dnorm(0, var = sigma_e2[i])
+      # eps_d[i, t] ~ dnorm(0, var = sigma_d2[i] / N[i, t])
+
+    }
+  }
+
+  #-------------------#
+  # OBSERVATION MODEL #
+  #-------------------#
+
+  for(i in 1:pops) {
+    for(t in 1:tmax) {
+
+      #obs_N[i, t] ~ dnorm(N[i, t], sd = 0.00001)
+      obs_N[i, t] ~ dpois(N[i, t])
+
+    }
+  }
+
+  #------------------------#
+  # PRIORS AND CONSTRAINTS #
+  #------------------------#
+
+  for(i in 1:pops) {
+
+    # initial_N[i] ~ dunif(0, max_N[i])
+    # N[i,1] <- initial_N[i]
+
+    X[i, 1] ~ dunif(0, max_X[i])
+    N[i, 1] <- exp(X[i, 1])
+
+    r0[i] ~ dunif(0, 5)
+    sigma_e2[i] ~ dunif(0, 10)
+    K[i] ~ dunif(10, max_K[i])
+    theta[i] ~ dunif(-10, 10)
+
+  }
+
+
+
+  #sigma_obs ~ dunif(0, 100)
+
+  #--------------------#
+  # DERIVED PARAMETERS #
+  #--------------------#
+
+  for(i in 1:pops) {
+
+    mu_r1[i] <- r0[i] / (1 - K[i]^(-theta[i]))
+    gamma[i] <- theta[i] * mu_r1[i] / (1 - K[i]^(-theta[i]))
+
+  }
+
+
+})
+
+sample_inits8 <- function(){
+
+  list(
+    r0 = rnorm(pops, 1, 0.5),
+    sigma_e2  = runif(pops, 0, 1),
+    theta = rnorm(pops, 2, 0.5),
+    K = rep(K, pops),
+    X = log(obs_N),
+    eps = matrix(0, pops, tmax-1)
+  )
+
+}
+
+input_data8 <- list(obs_N = obs_N)
+
+input_constants8 <- list(tmax = tmax, pops = pops, max_K = rep(K * 2, pops), max_X = apply(obs_N, 1, max) * 2,
+                         sigma_d2 = rep(sigma_d2, pops))
+
+inits8 <- list(sample_inits8(), sample_inits8(), sample_inits8())
+
+params8 <- c("K", "theta", "sigma_e2", "gamma", "mu_r1", "r0")
+
+# Set MCMC parameters
+niter <- 30000
+nburnin <- 5000
+nthin <- 10
+nchains <- 3
+
+# Model
+start <- Sys.time()
+
+seed8 <- 404
+set.seed(seed8)
+
+mod8 <- nimbleMCMC(code = predict_X_random,
+                   constants = input_constants8,
+                   data = input_data8,
+                   inits = inits8,
+                   monitors = params8,
+                   niter = niter,
+                   nburnin = nburnin,
+                   thin = nthin,
+                   nchains = nchains,
+                   setSeed = seed8,
+                   samplesAsCodaMCMC = TRUE)
+dur8 <- Sys.time() - start
+
+
 #-----------------#
 # Plot outputs ####
 #-----------------#
@@ -884,3 +1147,7 @@ dur6 <- Sys.time() - start
 plot_theta_mult(filename = "Approx-RE-MLE-outputs2",
                 model_list = list("Approx" = mod3, "MLE" = mod4, "RE-r" = mod1, "RE-s" = mod2,
                                   "RE-r-hyp" = mod5, "RE-s-hyp" = mod6))
+
+
+plot_theta_mult(filename = "Approx-MLE-X-outputs",
+                model_list = list("Approx" = mod3, "MLE" = mod4, "X-s" = mod7))

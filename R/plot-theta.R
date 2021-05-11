@@ -13,8 +13,8 @@ plot_theta_mult <- function(filename,
 
   # Table of possible models
   model_markers <- tibble::tibble(
-    model_name = c("Approx", "MLE", "RE-r", "RE-s", "RE-r-hyp", "RE-s-hyp"),
-    model_col = c("#2c91a0", "#ff9f1c", "#B54057", "#99b12f", "#007a5e", "#40476d")
+    model_name = c("Approx", "MLE", "RE-r", "RE-s", "RE-r-hyp", "RE-s-hyp", "X-s"),
+    model_col = c("#2c91a0", "#ff9f1c", "#B54057", "#99b12f", "#007a5e", "#40476d", "#653a2a")
   )
 
   # Select names and colors
