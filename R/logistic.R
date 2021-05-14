@@ -45,7 +45,7 @@ run_population_model <- function(X, sigma_d2, n_boot = NULL, n_time = length(X),
   # dd: form of density dependence:
   # --- "logistic": logistic form of density dependence
   # --- "independent": density-independent
-  # n_boot: number of replicates for simulation/bootstrap
+  # n_boot: number of replicates for bootstrap
   # n_time: number of time steps to simulate data for
   # hessian: return Hessian matrix (TRUE or FALSE)
 
@@ -158,7 +158,7 @@ run_population_model <- function(X, sigma_d2, n_boot = NULL, n_time = length(X),
   }
 
   # Simulate time series based on estimated parameters
-  simulate_ts <- function(X, sigma_d2, est, dd = "logistic", init_X = NULL, n_time) {
+  simulate_ts <- function(X, sigma_d2, est, dd = "logistic", init_X = NULL, n_rep, n_time) {
     # X: observed log population sizes
     # sigma_d2: demographic variance
     # est: output of `estimate_pars()`
@@ -167,7 +167,8 @@ run_population_model <- function(X, sigma_d2, n_boot = NULL, n_time = length(X),
     # --- "independent": density-independent
     # init_X: initial value for X. By default, it takes the first value in X.
     #         Can be set to any value (e.g. to K when calculating the stationary distribution)
-    # n_time: number of time steps to simulate for
+    # n_rep = number of replications
+    # n_time: number of time steps to simulate for in each replicate
 
     # Retrieve parameter estimates
     sigma_e2 <- exp(est$par[1])
@@ -184,40 +185,49 @@ run_population_model <- function(X, sigma_d2, n_boot = NULL, n_time = length(X),
     }
 
     first <- min(which(!is.na(X))) # Get first non-NA observation
-    X_sim <- rep(NA, n_time)
+    X_sim <- matrix(NA, nrow = n_rep, ncol = n_time)
 
-    # Set initial value of X_sim
+    # Set initial value of X_sim and XX
     if(is.null(init_X)) {
 
-
-      X_sim[first] <- X[first] # First value in observations (X)
+      X_sim[,first] <- XX <- X[first] # First value in observations (X)
 
     } else if(!is.null(init_X))  {
 
-      X_sim[first] <- init_X
+      X_sim[,first] <- XX <- init_X
 
     }
 
+    # Progess bar
+    pb_sim <- progress::progress_bar$new(total = n_time, clear = FALSE,
+                                         format = "Simulating [:bar] :percent eta: :eta")
 
+    # Random variation
+    # NB: Calculate random variation for all replicates and time steps outside loop for shorter run time
+    eps <- matrix(rnorm(n_rep * n_time, mean = 0, sd = 1), nrow = n_rep, ncol = n_time)
+
+    # Simulate
     while(any(is.na(X_sim)) | any(X_sim == 0)){
 
-      for (i in first:(n_time-1)){
+      for (t in first:(n_time-1)){
 
-        N <- exp(X_sim[i]) # Population size on arithmetic scale
+        pb_sim$tick()
 
-        E_X <- X_sim[i] + r - (sigma_e2 / 2) - (sigma_d2 / (2 * N)) + beta * N # Expectation
+        E_X <- XX + r - (sigma_e2 / 2) - (sigma_d2 / (2 * exp(XX))) + beta * exp(XX) # Expectation
 
-        Var_X <- sigma_e2 + (sigma_d2 / N) # Variance
+        Var_X <- sigma_e2 + (sigma_d2 / exp(XX)) # Variance
 
-        X_sim[i+1] <- E_X + rnorm(1, 0, sqrt(Var_X))
+        XX <- E_X + sqrt(Var_X) * eps[,t] # X next time step
 
-        if(X_sim[i+1] < 0) X_sim[i+1] <- 0
+        XX <- ifelse(XX <= 1, NA, XX) # If time series is extinct (log(1) == 0), set to NA
+
+        X_sim[,t+1] <- XX # Store calculations for t+1 in X_sim matrix
 
       }
 
     }
 
-    X_sim[is.na(X)] <- NA # NA in observations -> NA in simulations
+    X_sim[,is.na(X)] <- NA # NA in observations -> NA in simulations
 
     return(X_sim)
 
@@ -231,28 +241,19 @@ run_population_model <- function(X, sigma_d2, n_boot = NULL, n_time = length(X),
     # dd: form of density dependence:
     # --- "logistic": logistic form of density dependence
     # --- "independent": density-independent
-    # n_boot: number of replicates for simulation/bootstrap
+    # n_boot: number of bootstrap replicates
     # n_time: number of time steps to simulate data for
     # hessian: return Hessian matrix (TRUE or FALSE)
 
     # Simulate data
     sim_data <- matrix(NA, nrow = n_boot, ncol = n_time)
-
-    pb_sim <- progress::progress_bar$new(total = n_boot, clear = FALSE,
-                                         format = "Simulating data [:bar] :percent eta: :eta")
-
-    for(i in 1:n_boot) {
-
-      pb_sim$tick() # Update progress bar
-
-      sim_data[i,] <- simulate_ts(X = X, sigma_d2 = sigma_d2, est = est, dd = dd, n_time = n_time) # Simulate time series
-
-    }
+    sim_data <- simulate_ts(X = X, sigma_d2 = sigma_d2, est = est, dd = dd, n_rep = n_boot, n_time = n_time)
 
     # Bootstrap
     boot <- matrix(NA, nrow = n_boot, ncol = 4)
     colnames(boot) <- par_names
 
+    # Progess bar
     pb_boot <- progress::progress_bar$new(total = n_boot, clear = FALSE,
                                           format = "Bootstrapping [:bar] :percent eta: :eta")
 
@@ -310,6 +311,7 @@ run_population_model <- function(X, sigma_d2, n_boot = NULL, n_time = length(X),
   r <- estimates$par[2] # Estimate for r
   beta <- estimates$par[3] # Estimate for beta
   K <- -r / beta
+  names(K) <- "K"
   LL <- estimates$value # Log-likelihood
   N <- exp(X) # Population size on the arithmetic scale
   pred <- c(NA, X + r - (sigma_e2 / 2) - (sigma_d2 / (2 * N)) + beta * N) # Predicted values
@@ -349,22 +351,11 @@ stat_dist_logis <- function(mod, init_X, n_rep, n_time) {
   # Output from `estimate_pars()`
   est <- mod$estimates
 
-  # Simulate data
+  # Simulate time series
   sim_data <- matrix(NA, nrow = n_rep, ncol = n_time)
-
-  pb_rep <- progress::progress_bar$new(total = n_rep,
-                                       format = "Simulating data [:bar] :percent eta: :eta")
-
-  for(i in 1:n_rep) {
-
-    pb_rep$tick() # Update progress bar
-
-    log_sim <- simulate_ts(X = mod$X, init_X = init_X, sigma_d2 = mod$sigma_d2,
-                           est = est, dd = "logistic", n_time = n_time) # Simulate time series
-
-    sim_data[i,] <- exp(log_sim)
-
-  }
+  log_sim <- simulate_ts(X = mod$X, init_X = init_X, sigma_d2 = mod$sigma_d2,
+                         est = est, dd = "logistic", n_rep = n_rep, n_time = n_time)
+  sim_data <- exp(log_sim)
 
   # Mean and variance over simulated time series (first 10% of TS excluded)
   mean_stat_dist <- apply(sim_data[, -seq_len(n_time / 10)], 1, mean)
@@ -452,7 +443,7 @@ library(tidyverse)
 source(here::here("R", "Thetalogistic_BlueTit_VL.R"))
 
 # Simulate data
-data <- simulate_data(log(10), sigma_e2 = 0.02, sigma_d2 = 0.3, r = 0.6, beta = -0.005, tmax = 50, seed = 18)
+data <- simulate_data(log(10), sigma_e2 = 0.07, sigma_d2 = 0.4, r = 0.6, beta = -0.01, tmax = 50)
 
 # Run logistic models
 logis <- run_population_model(data$X, data$sigma_d2, n_boot = 1000)
@@ -512,7 +503,7 @@ cowplot::plot_grid(plotlist = pl) %>%
 #--------------------------#
 
 # Stationary distribution via simulation
-stat_dist <- stat_dist_logis(logis, n_rep = 100, n_time = 10000)
+stat_dist <- stat_dist_logis(logis, n_rep = 1000, n_time = 10000)
 qs <- quasi_stat_dist_logis(logis, n = 100)
 
 # Compare my code and original code
@@ -520,10 +511,10 @@ qs <- quasi_stat_dist_logis(logis, n = 100)
 x <- list(s = logis$r - logis$sigma_e2 * 0.5,
           sig2 = logis$sigma_e2,
           sigd = logis$sigma_d2,
-          K = -logis$r / logis$beta)
+          K = logis$K)
 
 stasj.logismod(x) # From Thetalogistic_BlueTit_VL.R
 
 hist(stat_dist$sim, prob = TRUE, ylim = c(0, max(qs$Pr) * 1.1), xlim = c(min(qs$N), 252),
-     main = "Title", nclass = 30)
+     main = "New", nclass = 30)
 lines(qs$N, qs$Pr, col = "red")
