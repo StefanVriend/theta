@@ -32,14 +32,15 @@ simulate_data <- function(init_X, sigma_e2, sigma_d2, r, beta, tmax, plot = TRUE
   }
 
   # Plot time series
-  plot(1:tmax, X, type = "l")
+  plot(1:tmax, X, type = "l", xlab = "Time")
 
   return(list(X = X, sigma_e2 = sigma_e2, sigma_d2 = sigma_d2, r = r, beta = beta, tmax = tmax))
 
 }
 
 # Run logistic or density-independent population model
-run_population_model <- function(X, sigma_d2, n_boot = NULL, n_time = length(X), hessian = FALSE) {
+run_population_model <- function(X, sigma_d2, dd = "logistic",
+                                 n_boot = NULL, n_time = length(X), hessian = FALSE) {
   # X: observed log population sizes
   # sigma_d2: demographic variance
   # dd: form of density dependence:
@@ -123,13 +124,11 @@ run_population_model <- function(X, sigma_d2, n_boot = NULL, n_time = length(X),
 
       # Starting values
       start <- c(sigma_e2_hat, r_hat, beta_hat)
-      names(start) <- c("log_sigma_e2", "r", "beta")
 
     } else if(dd == "independent") {
 
       # Starting values
       start <- c(sigma_e2_hat, r_hat)
-      names(start) <- c("log_sigma_e2", "r")
 
     }
 
@@ -199,19 +198,25 @@ run_population_model <- function(X, sigma_d2, n_boot = NULL, n_time = length(X),
     }
 
     # Progess bar
-    pb_sim <- progress::progress_bar$new(total = n_time, clear = FALSE,
-                                         format = "Simulating [:bar] :percent eta: :eta")
+    #pb_sim <- progress::progress_bar$new(total = n_time, clear = FALSE,
+    #                                     format = "Simulating [:bar] :percent eta: :eta")
 
     # Random variation
     # NB: Calculate random variation for all replicates and time steps outside loop for shorter run time
     eps <- matrix(rnorm(n_rep * n_time, mean = 0, sd = 1), nrow = n_rep, ncol = n_time)
 
+    try <- 0 # Try counter
+
     # Simulate
     while(any(is.na(X_sim)) | any(X_sim == 0)){
 
+      # If try counter reaches 1000, stop simulation
+      try <- try + 1
+      if (try > 1000) stop("Unable to simulate time series.")
+
       for (t in first:(n_time-1)){
 
-        pb_sim$tick()
+        #pb_sim$tick()
 
         E_X <- XX + r - (sigma_e2 / 2) - (sigma_d2 / (2 * exp(XX))) + beta * exp(XX) # Expectation
 
@@ -291,14 +296,14 @@ run_population_model <- function(X, sigma_d2, n_boot = NULL, n_time = length(X),
   #------------#
 
   # Estimate parameters
-  estimates <- estimate_pars(X = X, sigma_d2 = sigma_d2, dd = "logistic",
-                             start = set_starting_values(X, dd = "logistic"),
+  estimates <- estimate_pars(X = X, sigma_d2 = sigma_d2, dd = dd,
+                             start = set_starting_values(X, dd = dd),
                              hessian = hessian)
 
   # Bootstrap uncertainty
   if(!is.null(n_boot)) {
 
-    boot <- bootstrap(X, sigma_d2, estimates, dd = "logistic", n_boot = n_boot, n_time = n_time, hessian = hessian)
+    boot <- bootstrap(X, sigma_d2, estimates, dd = dd, n_boot = n_boot, n_time = n_time, hessian = hessian)
 
   }
 
@@ -307,11 +312,21 @@ run_population_model <- function(X, sigma_d2, n_boot = NULL, n_time = length(X),
   #----------------#
 
   sigma_e2 <- exp(estimates$par[1]) # Estimate for sigma_e2
-  names(sigma_e2) <- "sigma_e2" # Set name to sigma_e2 (instead of log_sigma_e2)
+
   r <- estimates$par[2] # Estimate for r
-  beta <- estimates$par[3] # Estimate for beta
-  K <- -r / beta
-  names(K) <- "K"
+
+  if(dd == "logistic") {
+
+    beta <- estimates$par[3] # Estimate for beta
+    K <- -r / beta
+
+  } else if (dd == "independent") {
+
+    beta <- 0
+    K <- NULL
+
+  }
+
   LL <- estimates$value # Log-likelihood
   N <- exp(X) # Population size on the arithmetic scale
   pred <- c(NA, X + r - (sigma_e2 / 2) - (sigma_d2 / (2 * N)) + beta * N) # Predicted values
@@ -325,7 +340,7 @@ run_population_model <- function(X, sigma_d2, n_boot = NULL, n_time = length(X),
   ic <- calculate_criteria(X, estimates) # Calculate information criteria
 
   return(list(estimates = estimates, sigma_e2 = sigma_e2, r = r, beta = beta, K = K,
-              X = X, N = N, sigma_d2 = sigma_d2,
+              X = X, N = N, sigma_d2 = sigma_d2, dd = dd,
               pred = pred, res = res, dem_comp = dem_comp, boot = boot, LL = LL,
               AIC = ic$AIC, AICc = ic$AICc, BIC = ic$BIC))
 
@@ -446,16 +461,16 @@ source(here::here("R", "Thetalogistic_BlueTit_VL.R"))
 data <- simulate_data(log(10), sigma_e2 = 0.07, sigma_d2 = 0.4, r = 0.6, beta = -0.01, tmax = 50)
 
 # Run logistic models
-logis <- run_population_model(data$X, data$sigma_d2, n_boot = 1000)
-logis2 <- logismodfit(x = exp(data$X), sd = data$sigma_d2, nboot = 1000) # From Thetalogistic_BlueTit_VL.R
+logis <- run_population_model(data$X, data$sigma_d2, n_boot = 10000)
+logis2 <- logismodfit(x = exp(data$X), sd = data$sigma_d2, nboot = 10000) # From Thetalogistic_BlueTit_VL.R
 
 # Compare my code and Vidar's code
 mod_outputs <- tibble::tibble(
   val = c(logis$boot$boot[, "r"], logis$boot$boot[, "sigma_e2"], logis$boot$boot[, "beta"], logis$boot$boot[, "K"],
           logis2$boot[, "r"] + (logis2$boot[, "sig2"] * 0.5), logis2$boot[, "sig2"],
           -logis2$boot[, "r"] / logis2$boot[, "K"], logis2$boot[, "K"]),
-  par = rep(rep(c("r", "sigma_e2", "beta", "K"), each = 1000), 2),
-  mod = rep(c("New", "Original"), each = 4000)
+  par = rep(rep(c("r", "sigma_e2", "beta", "K"), each = 10000), 2),
+  mod = rep(c("New", "Original"), each = 40000)
 )
 
 pl <- purrr::map(.x = c("r", "sigma_e2", "beta", "K"),
