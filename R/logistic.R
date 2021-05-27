@@ -1,11 +1,12 @@
 # Simulate data
-simulate_data <- function(init_X, sigma_e2, sigma_d2, r, beta, tmax, plot = TRUE, seed = NULL) {
+simulate_data <- function(init_X, sigma_e2, sigma_d2, r, beta, tmax, nn = 0, plot = TRUE, seed = NULL) {
   # init_X: initial value for X
   # sigma_e2: desired value for sigma_e2
   # sigma_d2: desired value for sigma_d2
   # r: desired value for r
   # beta: desired value for beta
   # tmax: time series length
+  # nn: number of NAs
   # plot: plot time series: TRUE or FALSE
   # seed: set seed to RNG
 
@@ -28,6 +29,14 @@ simulate_data <- function(init_X, sigma_e2, sigma_d2, r, beta, tmax, plot = TRUE
     Var_X <- sigma_e2 + (sigma_d2 / N)
 
     X[i+1] <- E_X + rnorm(1, 0, sqrt(Var_X))
+
+  }
+
+  if(nn > 0) {
+
+    na_years <- sample(2:(tmax-1), nn)
+
+    X[na_years] <- NA
 
   }
 
@@ -464,7 +473,7 @@ data <- simulate_data(log(10), sigma_e2 = 0.07, sigma_d2 = 0.4, r = 0.6, beta = 
 logis <- run_population_model(data$X, data$sigma_d2, n_boot = 10000)
 logis2 <- logismodfit(x = exp(data$X), sd = data$sigma_d2, nboot = 10000) # From Thetalogistic_BlueTit_VL.R
 
-# Compare my code and Vidar's code
+# Compare my code and original code
 mod_outputs <- tibble::tibble(
   val = c(logis$boot$boot[, "r"], logis$boot$boot[, "sigma_e2"], logis$boot$boot[, "beta"], logis$boot$boot[, "K"],
           logis2$boot[, "r"] + (logis2$boot[, "sig2"] * 0.5), logis2$boot[, "sig2"],
@@ -533,3 +542,106 @@ stasj.logismod(x) # From Thetalogistic_BlueTit_VL.R
 hist(stat_dist$sim, prob = TRUE, ylim = c(0, max(qs$Pr) * 1.1), xlim = c(min(qs$N), 252),
      main = "New", nclass = 30)
 lines(qs$N, qs$Pr, col = "red")
+
+
+# Multiple test runs ####
+rep <- 15
+purrr::walk(.x = 1:rep,
+            .f = ~{
+
+              cat(crayon::yellow(paste("Model", .x, sep = " ")))
+
+              data <- simulate_data(log(10), sigma_e2 = 0.05, sigma_d2 = 0.4, r = 0.6, beta = -0.01, tmax = 50)
+
+              # Run logistic models
+              logis <- run_population_model(data$X, data$sigma_d2, n_boot = 2000)
+              logis2 <- logismodfit(x = exp(data$X), sd = data$sigma_d2, nboot = 2000) # From Thetalogistic_BlueTit_VL.R
+
+              # Compare my code and Vidar's code
+              mod_outputs <- tibble::tibble(
+                val = c(logis$boot$boot[, "r"], logis$boot$boot[, "sigma_e2"], logis$boot$boot[, "beta"], logis$boot$boot[, "K"],
+                        logis2$boot[, "r"] + (logis2$boot[, "sig2"] * 0.5), logis2$boot[, "sig2"],
+                        -(logis2$boot[, "r"] + (logis2$boot[, "sig2"] * 0.5)) / logis2$boot[, "K"], logis2$boot[, "K"]),
+                par = rep(rep(c("r", "sigma_e2", "beta", "K"), each = 2000), 2),
+                mod = rep(c("New", "Original"), each = 8000)
+              )
+
+              # LL estimates
+              ll_outputs <- tibble::tibble(
+                val = c(logis$r, logis$sigma_e2, logis$beta, logis$K,
+                        logis2$s + logis2$sig2 * 0.5, logis2$sig2, -(logis2$s + (logis2$sig2 * 0.5)) / logis2$K, logis2$K),
+                par = rep(c("r", "sigma_e2", "beta", "K"), 2),
+                mod = rep(c("New", "Original"), each = 4),
+                id = rep(1:2, each = 4)
+              )
+
+              pl <- purrr::map(.x = c("r", "sigma_e2", "beta", "K"),
+                               .f = ~{
+
+                                 # Filter data for selected parameter
+                                 plot_data <- mod_outputs %>%
+                                   dplyr::filter(par == .x)
+
+                                 plot_ll <- ll_outputs %>%
+                                   dplyr::filter(par == .x)
+
+                                 # True value for selected parameter
+                                 true <- data[[.x]]
+
+                                 if(.x == "K") {
+
+                                   true <- -data$r / data$beta
+
+                                 }
+
+                                 if(.x == "K") {
+
+                                   xlim <- c(20, 100)
+
+                                 } else if(.x == "r") {
+
+                                   xlim <- c(0.2, 1.5)
+
+                                 } else if(.x == "beta") {
+
+                                   xlim <- c(-0.03, 0)
+
+                                 } else if(.x == "sigma_e2") {
+
+                                   xlim <- c(0, 0.2)
+
+                                 }
+
+                                 # Plot
+                                 ggplot(plot_data, aes(x = val, y = mod, fill = mod, color = mod)) +
+                                   geom_segment(data = plot_ll, mapping = aes(x = val, xend = val, y = mod, yend = id + 0.8,
+                                                                              color = mod)) +
+                                   geom_vline(xintercept = true, linetype = "dashed") +
+                                   ggridges::geom_density_ridges(scale = 0.8, alpha = 0.5) +
+                                   theme_classic(base_family = "Signika") +
+                                   labs(x = .x, y = "Model") +
+                                   coord_cartesian(xlim = xlim) +
+                                   scale_color_manual(values = c("#2c91a0", "#de6e4b")) +
+                                   scale_fill_manual(values = c("#2c91a0", "#de6e4b")) +
+                                   theme(axis.text = element_text(size = 11, color = "black"),
+                                         axis.title = element_text(size = 12, color = "black"),
+                                         plot.margin = margin(l = 5, b = 5, t = 10, r = 15),
+                                         legend.position = "none")
+
+                               })
+
+              cowplot::plot_grid(plotlist = pl) %>%
+                cowplot::save_plot(filename = here::here("inst", "images", paste0("Logis-outputs", "-", .x, ".pdf")),
+                                   device = cairo_pdf,
+                                   plot = .,
+                                   nrow = 2,
+                                   ncol = 2,
+                                   base_asp = 1.4)
+
+
+            })
+
+pdftools::pdf_combine(here::here("inst", "images", paste0("Logis-outputs", "-", seq_len(rep), ".pdf")),
+                      output = here::here("inst", "images", paste0("Logis-outputs-all", ".pdf")))
+
+unlink(here::here("inst", "images", paste0("Logis-outputs", "-", seq_len(rep), ".pdf")))
