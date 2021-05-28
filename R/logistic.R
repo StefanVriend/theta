@@ -653,12 +653,14 @@ unlink(here::here("inst", "images", paste0("Logis-outputs", "-", seq_len(rep), "
 
 
 # NA test run ####
+data0 <- simulate_data(log(10), sigma_e2 = 0.03, sigma_d2 = 0.5, r = 0.6, beta = -0.01, tmax = 50, nn = 0, seed = 112)
 data1 <- simulate_data(log(10), sigma_e2 = 0.03, sigma_d2 = 0.5, r = 0.6, beta = -0.01, tmax = 50, nn = 1, seed = 112)
 data2 <- simulate_data(log(10), sigma_e2 = 0.03, sigma_d2 = 0.5, r = 0.6, beta = -0.01, tmax = 50, nn = 2, seed = 112)
 data5 <- simulate_data(log(10), sigma_e2 = 0.03, sigma_d2 = 0.5, r = 0.6, beta = -0.01, tmax = 50, nn = 5, seed = 112)
 data10 <- simulate_data(log(10), sigma_e2 = 0.03, sigma_d2 = 0.5, r = 0.6, beta = -0.01, tmax = 50, nn = 10, seed = 112)
 data15 <- simulate_data(log(10), sigma_e2 = 0.03, sigma_d2 = 0.5, r = 0.6, beta = -0.01, tmax = 50, nn = 15, seed = 112)
 
+logis0 <- run_population_model(data0$X, data0$sigma_d2, n_boot = 1000)
 logis1 <- run_population_model(data1$X, data1$sigma_d2, n_boot = 1000)
 logis2 <- run_population_model(data2$X, data2$sigma_d2, n_boot = 1000)
 logis5 <- run_population_model(data5$X, data5$sigma_d2, n_boot = 1000)
@@ -666,17 +668,18 @@ logis10 <- run_population_model(data10$X, data10$sigma_d2, n_boot = 1000)
 logis15 <- run_population_model(data15$X, data15$sigma_d2, n_boot = 1000)
 
 mod_outputs_na <- tibble::tibble(
-  val = c(logis1$boot$boot[, "r"], logis1$boot$boot[, "sigma_e2"], logis1$boot$boot[, "beta"], logis1$boot$boot[, "K"],
+  val = c(logis0$boot$boot[, "r"], logis0$boot$boot[, "sigma_e2"], logis0$boot$boot[, "beta"], logis0$boot$boot[, "K"],
+          logis1$boot$boot[, "r"], logis1$boot$boot[, "sigma_e2"], logis1$boot$boot[, "beta"], logis1$boot$boot[, "K"],
           logis2$boot$boot[, "r"], logis2$boot$boot[, "sigma_e2"], logis2$boot$boot[, "beta"], logis2$boot$boot[, "K"],
           logis5$boot$boot[, "r"], logis5$boot$boot[, "sigma_e2"], logis5$boot$boot[, "beta"], logis5$boot$boot[, "K"],
           logis10$boot$boot[, "r"], logis10$boot$boot[, "sigma_e2"],
           logis10$boot$boot[, "beta"], logis10$boot$boot[, "K"],
           logis15$boot$boot[, "r"], logis15$boot$boot[, "sigma_e2"],
           logis15$boot$boot[, "beta"], logis15$boot$boot[, "K"]),
-  par = rep(rep(c("r", "sigma_e2", "beta", "K"), each = 1000), 5),
-  mod = rep(c("1", "2", "5", "10", "15"), each = 4000)
+  par = rep(rep(c("r", "sigma_e2", "beta", "K"), each = 1000), 6),
+  mod = rep(c("0", "1", "2", "5", "10", "15"), each = 4000)
 ) %>%
-  dplyr::mutate(mod = forcats::fct_relevel(mod, c("1", "2", "5", "10", "15")))
+  dplyr::mutate(mod = forcats::fct_relevel(mod, c("0", "1", "2", "5", "10", "15")))
 
 pl_na <- purrr::map(.x = c("r", "sigma_e2", "beta", "K"),
                     .f = ~{
@@ -700,8 +703,8 @@ pl_na <- purrr::map(.x = c("r", "sigma_e2", "beta", "K"),
                         ggridges::geom_density_ridges(scale = 0.85, alpha = 0.5) +
                         theme_classic(base_family = "Titillium Web") +
                         labs(x = .x, y = "Number of NAs") +
-                        scale_color_manual(values = c("#053c5e", "#559cad", "#856084", "#f39c6b", "#562423")) +
-                        scale_fill_manual(values = c("#053c5e", "#559cad", "#856084", "#f39c6b", "#562423")) +
+                        scale_color_manual(values = c("#b54057", "#f39c6b", "#007a5e", "#2c91a0", "#053c5e", "#856084")) +
+                        scale_fill_manual(values = c("#b54057", "#f39c6b", "#007a5e", "#2c91a0", "#053c5e", "#856084")) +
                         theme(axis.text = element_text(size = 11, color = "black"),
                               axis.title = element_text(size = 12, color = "black"),
                               plot.margin = margin(l = 5, b = 5, t = 10, r = 15),
