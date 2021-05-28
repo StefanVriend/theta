@@ -47,6 +47,90 @@ simulate_data <- function(init_X, sigma_e2, sigma_d2, r, beta, tmax, nn = 0, plo
 
 }
 
+# Simulate time series based on estimated parameters
+# Used in `run_population_model()` and `quasi_stat_dist_logis()`
+simulate_ts <- function(X, sigma_d2, est, dd = "logistic", init_X = NULL, extinction_barrier = 1, n_rep, n_time) {
+  # X: observed log population sizes
+  # sigma_d2: demographic variance
+  # est: output of `estimate_pars()`
+  # dd: form of density dependence:
+  # --- "logistic": logistic form of density dependence
+  # --- "independent": density-independent
+  # init_X: initial value for X. By default, it takes the first value in X.
+  #         Can be set to any value (e.g. to K when calculating the stationary distribution)
+  # extinction_barrier: extinction barrier at log scale.
+  # n_rep = number of replications
+  # n_time: number of time steps to simulate for in each replicate
+
+  # Retrieve parameter estimates
+  sigma_e2 <- exp(est$par[1])
+  r <- est$par[2]
+
+  if(dd == "logistic") {
+
+    beta <- est$par[3]
+
+  } else if(dd == "independent") {
+
+    beta <- 0
+
+  }
+
+  first <- min(which(!is.na(X))) # Get first non-NA observation
+  X_sim <- matrix(NA, nrow = n_rep, ncol = n_time)
+
+  # Set initial value of X_sim and XX
+  if(is.null(init_X)) {
+
+    X_sim[,first] <- XX <- X[first] # First value in observations (X)
+
+  } else if(!is.null(init_X))  {
+
+    X_sim[,first] <- XX <- init_X
+
+  }
+
+  # Progess bar
+  #pb_sim <- progress::progress_bar$new(total = n_time, clear = FALSE,
+  #                                     format = "Simulating [:bar] :percent eta: :eta")
+
+  # Random variation
+  # NB: Calculate random variation for all replicates and time steps outside loop for shorter run time
+  eps <- matrix(rnorm(n_rep * n_time, mean = 0, sd = 1), nrow = n_rep, ncol = n_time)
+
+  try <- 0 # Try counter
+
+  # Simulate
+  while(any(is.na(X_sim)) | any(X_sim == 0)){
+
+    # If try counter reaches 1000, stop simulation
+    try <- try + 1
+    if (try > 1000) stop("Unable to simulate time series.")
+
+    for (t in first:(n_time-1)){
+
+      #pb_sim$tick()
+
+      E_X <- XX + r - (sigma_e2 / 2) - (sigma_d2 / (2 * exp(XX))) + beta * exp(XX) # Expectation
+
+      Var_X <- sigma_e2 + (sigma_d2 / exp(XX)) # Variance
+
+      XX <- E_X + sqrt(Var_X) * eps[,t] # X next time step
+
+      XX <- ifelse(XX <= extinction_barrier, NA, XX) # If time series is extinct (see extinction_barrier), set to NA.
+
+      X_sim[,t+1] <- XX # Store calculations for t+1 in X_sim matrix
+
+    }
+
+  }
+
+  X_sim[,is.na(X)] <- NA # NA in observations -> NA in simulations
+
+  return(X_sim)
+
+}
+
 # Run logistic or density-independent population model
 run_population_model <- function(X, sigma_d2, dd = "logistic",
                                  n_boot = NULL, n_time = length(X), hessian = FALSE) {
@@ -165,87 +249,7 @@ run_population_model <- function(X, sigma_d2, dd = "logistic",
 
   }
 
-  # Simulate time series based on estimated parameters
-  simulate_ts <- function(X, sigma_d2, est, dd = "logistic", init_X = NULL, n_rep, n_time) {
-    # X: observed log population sizes
-    # sigma_d2: demographic variance
-    # est: output of `estimate_pars()`
-    # dd: form of density dependence:
-    # --- "logistic": logistic form of density dependence
-    # --- "independent": density-independent
-    # init_X: initial value for X. By default, it takes the first value in X.
-    #         Can be set to any value (e.g. to K when calculating the stationary distribution)
-    # n_rep = number of replications
-    # n_time: number of time steps to simulate for in each replicate
 
-    # Retrieve parameter estimates
-    sigma_e2 <- exp(est$par[1])
-    r <- est$par[2]
-
-    if(dd == "logistic") {
-
-      beta <- est$par[3]
-
-    } else if(dd == "independent") {
-
-      beta <- 0
-
-    }
-
-    first <- min(which(!is.na(X))) # Get first non-NA observation
-    X_sim <- matrix(NA, nrow = n_rep, ncol = n_time)
-
-    # Set initial value of X_sim and XX
-    if(is.null(init_X)) {
-
-      X_sim[,first] <- XX <- X[first] # First value in observations (X)
-
-    } else if(!is.null(init_X))  {
-
-      X_sim[,first] <- XX <- init_X
-
-    }
-
-    # Progess bar
-    #pb_sim <- progress::progress_bar$new(total = n_time, clear = FALSE,
-    #                                     format = "Simulating [:bar] :percent eta: :eta")
-
-    # Random variation
-    # NB: Calculate random variation for all replicates and time steps outside loop for shorter run time
-    eps <- matrix(rnorm(n_rep * n_time, mean = 0, sd = 1), nrow = n_rep, ncol = n_time)
-
-    try <- 0 # Try counter
-
-    # Simulate
-    while(any(is.na(X_sim)) | any(X_sim == 0)){
-
-      # If try counter reaches 1000, stop simulation
-      try <- try + 1
-      if (try > 1000) stop("Unable to simulate time series.")
-
-      for (t in first:(n_time-1)){
-
-        #pb_sim$tick()
-
-        E_X <- XX + r - (sigma_e2 / 2) - (sigma_d2 / (2 * exp(XX))) + beta * exp(XX) # Expectation
-
-        Var_X <- sigma_e2 + (sigma_d2 / exp(XX)) # Variance
-
-        XX <- E_X + sqrt(Var_X) * eps[,t] # X next time step
-
-        XX <- ifelse(XX <= 1, NA, XX) # If time series is extinct (log(1) == 0), set to NA
-
-        X_sim[,t+1] <- XX # Store calculations for t+1 in X_sim matrix
-
-      }
-
-    }
-
-    X_sim[,is.na(X)] <- NA # NA in observations -> NA in simulations
-
-    return(X_sim)
-
-  }
 
   # Bootstrap uncertainty
   bootstrap <- function(X, sigma_d2, est, dd = "logistic", n_boot, n_time, hessian) {
@@ -355,20 +359,31 @@ run_population_model <- function(X, sigma_d2, dd = "logistic",
 
 }
 
-#--------------------------#
-# NOTE: UNDER CONSTRUCTION #
-#--------------------------#
+## Stationary distribution
+# Say Xt describes a stochastic process with a starting value at t = 0 and no absorbing barriers (i.e. when a population trajectory reaches an absorbing barrier, it will remain in that state; in contrast to reflecting barriers, on which he trajectory bounces back). When t approaches infinity, the distribution of Xt becomes stationary. Its join probability distribution does not change over time, and consequently, parameters like a mean and variance do not change over time either.
 
-# Stationary distribution
-stat_dist_logis <- function(mod, init_X, n_rep, n_time) {
+## Quasi-stationary distribution
+# However, if demographic stochasticity is included in the population model, or if the extinction barrier is chosen at N = 1 (barrier = absorbing), the probability of ultimate extinction will usually be 1, which means that the process is not stationary. However, most populations will nevertheless fluctuate around a mean value for a very long time. The quasi-stationary distribution  expresses the expected properties of the population fluctuations from the initial state  up to the time of extinction. In practice, the mean and variance of the quasi-stationary distribution are very similar to those of the stationary distribution.
+
+# Calculate (quasi-)stationary distribution using simulation
+stat_dist_logis <- function(mod, init_X, sigma_d2, extinction_barrier = 1, percent_discarded = 10, n_rep, n_time) {
   # mod: output from `run_population_model()`
   # init_X: initial value for X.
+  # sigma_d2: demographic variance. Can be set to 0 to calculate stationary distribution.
+  # extinction_barrier: extinction barrier at log scale.
+  # percent_discarded: percent of time series discarded before calculating distribution parameters.
   # n_rep: number of replicates
   # n_time: number of time steps to simulate for
 
   if(missing(init_X)) {
 
-    init_X <- log(-mod$r / mod$beta) # Initial value of simulation at K
+    init_X <- log(-mod$r / mod$beta) # If missing, initial value of simulation at K
+
+  }
+
+  if(missing(sigma_d2)) {
+
+    sigma_d2 <- mod$sigma_d2 # If missing, retrieve sigma_d2 from model output
 
   }
 
@@ -377,22 +392,31 @@ stat_dist_logis <- function(mod, init_X, n_rep, n_time) {
 
   # Simulate time series
   sim_data <- matrix(NA, nrow = n_rep, ncol = n_time)
-  log_sim <- simulate_ts(X = mod$X, init_X = init_X, sigma_d2 = mod$sigma_d2,
-                         est = est, dd = "logistic", n_rep = n_rep, n_time = n_time)
-  sim_data <- exp(log_sim)
+  log_sim <- simulate_ts(X = mod$X, init_X = init_X, sigma_d2 = sigma_d2, est = est, dd = "logistic",
+                         extinction_barrier = extinction_barrier, n_rep = n_rep, n_time = n_time)
 
-  # Mean and variance over simulated time series (first 10% of TS excluded)
-  mean_stat_dist <- apply(sim_data[, -seq_len(n_time / 10)], 1, mean)
-  var_stat_dist <- apply(sim_data[, -seq_len(n_time / 10)], 1, var)
+  sim_data <- exp(log_sim) # Transform to arithmetic scale
 
-  return(list(sim = sim_data[, -seq_len(n_time / 10)],
+  # Mean and variance over simulated time series (first X% of TS excluded)
+  mean_stat_dist <- mean(as.numeric(sim_data[, -seq_len(n_time / percent_discarded)]))
+  var_stat_dist <- var(as.numeric(sim_data[, -seq_len(n_time / percent_discarded)]))
+
+  # Message
+  cat(crayon::silver$underline("Simulation of ", n_rep, " time series of ", n_time, " years\n", sep = ""))
+  cat("Mean: ", crayon::yellow(round(mean_stat_dist, 3)), "\n", sep = "")
+  cat("Variance: ", crayon::yellow(round(var_stat_dist, 3)), "\n", sep = "")
+  cat(crayon::silver("NB: First ", percent_discarded,
+                     "% of the time series was discarded prior to mean/variance calculation.\n", sep = ""))
+
+  return(list(sim = sim_data[, -seq_len(n_time * percent_discarded / 100)],
+              log_sim = log_sim[, -seq_len(n_time * percent_discarded / 100)],
               mean_stat_dist = mean_stat_dist,
               var_stat_dist = var_stat_dist))
 
 }
 
-# Quasi-stationary distribution
-quasi_stat_dist_logis <- function(mod, from = 1, to, n, lower = 0, upper) {
+# Calculate (quasi-)stationary distribution using Green function
+stat_dist_green_logis <- function(mod, from = 1, to, n, lower = 0, upper) {
   # mod: output from `run_population_model()`
   # from: lower bound population size (Default: 1)
   # to: upper bound population size (Default: 2K)
@@ -470,8 +494,11 @@ source(here::here("R", "Thetalogistic_BlueTit_VL.R"))
 data <- simulate_data(log(10), sigma_e2 = 0.07, sigma_d2 = 0.4, r = 0.6, beta = -0.01, tmax = 50)
 
 # Run logistic models
-logis <- run_population_model(data$X, data$sigma_d2, n_boot = 10000)
+logis <- run_population_model(data$X, data$sigma_d2, n_boot = 1000)
 logis2 <- logismodfit(x = exp(data$X), sd = data$sigma_d2, nboot = 10000) # From Thetalogistic_BlueTit_VL.R
+
+# Run qs
+qs <- stat_dist_logis(logis, n_rep = 1000, n_time = 1000)
 
 # Compare my code and original code
 mod_outputs <- tibble::tibble(
@@ -520,28 +547,6 @@ cowplot::plot_grid(plotlist = pl) %>%
                      nrow = 2,
                      ncol = 2,
                      base_asp = 1.4)
-
-
-#--------------------------#
-# NOTE: UNDER CONSTRUCTION #
-#--------------------------#
-
-# Stationary distribution via simulation
-stat_dist <- stat_dist_logis(logis, n_rep = 1000, n_time = 10000)
-qs <- quasi_stat_dist_logis(logis, n = 100)
-
-# Compare my code and original code
-# Input needed for original version of the stationary distribution
-x <- list(s = logis$r - logis$sigma_e2 * 0.5,
-          sig2 = logis$sigma_e2,
-          sigd = logis$sigma_d2,
-          K = logis$K)
-
-stasj.logismod(x) # From Thetalogistic_BlueTit_VL.R
-
-hist(stat_dist$sim, prob = TRUE, ylim = c(0, max(qs$Pr) * 1.1), xlim = c(min(qs$N), 252),
-     main = "New", nclass = 30)
-lines(qs$N, qs$Pr, col = "red")
 
 
 # Multiple test runs ####
